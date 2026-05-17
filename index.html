@@ -627,6 +627,28 @@
     .admin-stat-label { color: #6b8a99; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
     .admin-stat-value { color: #ffffff; font-size: 24px; font-weight: 700; line-height: 1.1; margin-top: 8px; }
     .admin-stat-note { color: #86a8b7; font-size: 11px; margin-top: 6px; }
+    .admin-panel-tabs { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+    .admin-panel-tabs::-webkit-scrollbar { display: none; }
+    .admin-panel-tab { flex: 0 0 auto; min-height: 40px; padding: 9px 13px; border-radius: 999px; background: rgba(13, 31, 45, 0.82); color: #86a8b7; border: 1px solid rgba(0, 180, 160, 0.08); font-size: 12px; font-weight: 800; cursor: pointer; transition: background .2s ease, border-color .2s ease, color .2s ease; }
+    .admin-panel-tab.active { background: rgba(0, 180, 160, 0.14); color: #7fe6d7; border-color: rgba(0, 180, 160, 0.28); }
+    .admin-business-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .admin-business-card { padding: 15px; border-radius: 16px; background: rgba(13, 31, 45, 0.82); border: 1px solid rgba(0, 180, 160, 0.08); }
+    .admin-business-card.emphasis { background: linear-gradient(145deg, rgba(0, 180, 160, 0.14), rgba(13, 31, 45, 0.88)); border-color: rgba(0, 180, 160, 0.2); }
+    .admin-business-label { color: #6b8a99; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+    .admin-business-value { margin-top: 8px; color: #ffffff; font-size: 22px; font-weight: 800; line-height: 1.1; }
+    .admin-business-note { margin-top: 6px; color: #86a8b7; font-size: 11px; line-height: 1.45; }
+    .admin-business-panels { display: grid; gap: 12px; margin-top: 12px; }
+    .admin-business-panel { padding: 14px; border-radius: 16px; background: rgba(13, 31, 45, 0.82); border: 1px solid rgba(0, 180, 160, 0.08); }
+    .admin-business-panel-title { color: #ffffff; font-size: 13px; font-weight: 800; }
+    .admin-business-panel-copy { margin-top: 4px; color: #86a8b7; font-size: 11px; line-height: 1.45; }
+    .admin-business-list { display: grid; gap: 8px; margin-top: 12px; }
+    .admin-business-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 11px; border-radius: 12px; background: rgba(7, 18, 28, 0.38); border: 1px solid rgba(0, 180, 160, 0.06); }
+    .admin-business-row-main { min-width: 0; }
+    .admin-business-row-title { color: #ffffff; font-size: 12px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .admin-business-row-meta { margin-top: 3px; color: #86a8b7; font-size: 10px; line-height: 1.4; overflow-wrap: anywhere; }
+    .admin-business-row-value { color: #ffffff; font-size: 12px; font-weight: 800; text-align: right; white-space: nowrap; }
+    .admin-business-row-value.warn { color: #ffd36b; }
+    .admin-business-row-value.good { color: #7fe6d7; }
     .admin-price-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
     .admin-price-card { padding: 13px; border-radius: 14px; background: rgba(13, 31, 45, 0.82); border: 1px solid rgba(0, 180, 160, 0.10); }
     .admin-price-card.highlight { border-color: rgba(0, 180, 160, 0.32); background: rgba(0, 180, 160, 0.09); }
@@ -857,12 +879,14 @@
         width: 100%;
       }
       .admin-grid,
+      .admin-business-grid,
       .admin-price-grid,
       .admin-form-grid,
       .admin-access-actions,
       .admin-list-toolbar,
       .admin-action-grid,
-      .admin-mini-meta {
+      .admin-mini-meta,
+      .admin-business-panels {
         grid-template-columns: 1fr;
       }
       .admin-access-row {
@@ -1936,122 +1960,186 @@
         </div>
 
         <div class="card">
-          <div class="section-header">
-            <h2 class="section-title">Oferta de Lançamento</h2>
-            <span class="text-xs text-[#6b8a99]">Lote Fundador</span>
-          </div>
           <div class="p-4">
-            <div id="admin-launch-pricing" class="admin-price-grid"></div>
-            <div class="admin-price-note mt-3">Sugestão: destaque o anual como melhor oferta e mantenha estes valores apenas para os primeiros clientes.</div>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="section-header">
-            <h2 class="section-title">Novo Acesso</h2>
-            <button onclick="prefillAdminAccessForm()" class="text-xs font-semibold text-brand hover:text-brand-light transition-colors">Gerar Senha</button>
-          </div>
-          <div class="p-4 space-y-3">
-            <div class="admin-form-grid">
-              <div>
-                <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Nome</label>
-                <input type="text" id="admin-access-name" class="input-styled" placeholder="Nome do cliente">
-              </div>
-              <div>
-                <label class="text-xs text-[#6b8a99] font-medium mb-2 block">E-mail</label>
-                <input type="email" id="admin-access-email" class="input-styled" placeholder="cliente@email.com">
-              </div>
-              <div>
-                <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Validade até</label>
-                <input type="datetime-local" id="admin-access-valid-until-at" class="input-styled">
-              </div>
-              <div>
-                <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Plano</label>
-                <select id="admin-access-plan" class="input-styled" onchange="updateAdminPlanValidity()">
-                  <option value="monthly">Mensal</option>
-                  <option value="semiannual">Semestral</option>
-                  <option value="annual">Anual</option>
-                  <option value="trial">Teste 30 min</option>
-                </select>
-                <div id="admin-access-plan-note" class="admin-plan-note"></div>
-              </div>
-              <div>
-                <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Tipo de conta</label>
-                <select id="admin-access-role" class="input-styled">
-              <option value="user">Usuário</option>
-                  <option value="admin">Administrador</option>
-                </select>
-              </div>
-            </div>
-            <div>
-            <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Senha temporária</label>
-              <div class="admin-password-box">
-                <div id="admin-access-password" class="admin-password-value">-</div>
-                <button onclick="copyAdminPassword()" class="admin-secondary-btn" type="button">Copiar</button>
-              </div>
-            </div>
-            <button onclick="createManagedAccess()" class="w-full py-3.5 bg-brand text-white font-semibold rounded-xl hover:bg-brand-light transition-colors">Criar Acesso e Conta</button>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="section-header">
-            <h2 class="section-title">Perfil Teste</h2>
-            <span class="text-xs text-[#6b8a99]">Validade automatica de 30 min</span>
-          </div>
-          <div class="p-4 space-y-3">
-            <div>
-              <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Nome do cliente</label>
-              <input type="text" id="admin-trial-name" class="input-styled" placeholder="Nome para identificar o teste">
-            </div>
-            <div id="admin-trial-credentials" class="admin-password-box" style="display:block;">
-              <div class="text-xs text-[#6b8a99]">Gere um perfil teste para exibir aqui o e-mail e a senha temporária.</div>
-            </div>
-            <div class="admin-access-actions">
-              <button onclick="copyTrialCredentials()" class="admin-secondary-btn" type="button">Copiar teste</button>
-              <button onclick="createTrialAccess()" class="admin-secondary-btn warn" type="button">Gerar perfil teste</button>
+            <div class="admin-panel-tabs" aria-label="Seções do painel do administrador">
+              <button type="button" class="admin-panel-tab active" data-admin-tab="dashboard" onclick="setAdminWorkspaceTab('dashboard')">Dashboard Comercial</button>
+              <button type="button" class="admin-panel-tab" data-admin-tab="access" onclick="setAdminWorkspaceTab('access')">Cadastros e Acessos</button>
+              <button type="button" class="admin-panel-tab" data-admin-tab="audit" onclick="setAdminWorkspaceTab('audit')">Histórico</button>
             </div>
           </div>
         </div>
 
-        <div class="card">
-          <div class="section-header">
-            <h2 class="section-title">Contas Liberadas</h2>
-            <div class="flex flex-col items-end gap-1">
-              <button onclick="loadAdminData(false)" class="text-xs font-semibold text-brand hover:text-brand-light transition-colors">Atualizar Agora</button>
-              <span id="admin-refresh-status" class="text-[10px] text-[#6b8a99]">Atualização manual</span>
+        <div id="admin-section-dashboard" class="space-y-4">
+          <div class="card">
+            <div class="section-header">
+              <h2 class="section-title">Dashboard Comercial</h2>
+              <span class="text-xs text-[#6b8a99]">Valores, planos e vencimentos</span>
             </div>
-          </div>
-          <div class="p-4">
-            <div class="admin-list-toolbar">
-              <input
-                type="search"
-                id="admin-access-search"
-                class="input-styled admin-search-input"
-                placeholder="Buscar por nome ou e-mail"
-                oninput="setAdminAccessSearch(this.value)"
-              >
-              <div class="admin-filter-tabs" aria-label="Filtros de acessos">
-                <button type="button" class="admin-filter-btn active" data-admin-filter="all" onclick="setAdminAccessFilter('all')">Todos <span id="admin-filter-all-count" class="admin-filter-count">0</span></button>
-                <button type="button" class="admin-filter-btn" data-admin-filter="active" onclick="setAdminAccessFilter('active')">Ativos <span id="admin-filter-active-count" class="admin-filter-count">0</span></button>
-                <button type="button" class="admin-filter-btn" data-admin-filter="blocked" onclick="setAdminAccessFilter('blocked')">Bloqueados <span id="admin-filter-blocked-count" class="admin-filter-count">0</span></button>
-                <button type="button" class="admin-filter-btn" data-admin-filter="expired" onclick="setAdminAccessFilter('expired')">Expirados <span id="admin-filter-expired-count" class="admin-filter-count">0</span></button>
+            <div class="p-4">
+              <div class="admin-business-grid">
+                <div class="admin-business-card emphasis">
+                  <div class="admin-business-label">Receita mensal estimada</div>
+                  <div class="admin-business-value" id="admin-business-mrr">R$ 0,00</div>
+                  <div class="admin-business-note">Equivalente mensal dos planos ativos, para acompanhar a previsibilidade do app.</div>
+                </div>
+                <div class="admin-business-card">
+                  <div class="admin-business-label">Receita contratada ativa</div>
+                  <div class="admin-business-value" id="admin-business-contract">R$ 0,00</div>
+                  <div class="admin-business-note">Soma do valor dos planos ativos no ciclo atual.</div>
+                </div>
+                <div class="admin-business-card">
+                  <div class="admin-business-label">Clientes pagantes</div>
+                  <div class="admin-business-value" id="admin-business-active-paid">0</div>
+                  <div class="admin-business-note">Contas ativas nos planos mensal, semestral e anual.</div>
+                </div>
+                <div class="admin-business-card">
+                  <div class="admin-business-label">Vencem em 30 dias</div>
+                  <div class="admin-business-value" id="admin-business-expiring-30">0</div>
+                  <div class="admin-business-note">Renovações que pedem atenção para não perder receita.</div>
+                </div>
+              </div>
+              <div class="admin-business-panels">
+                <div class="admin-business-panel">
+                  <div class="admin-business-panel-title">Planos ativos</div>
+                  <div class="admin-business-panel-copy">Distribuição dos clientes pagantes por plano, com valor comercial de cada carteira.</div>
+                  <div id="admin-business-plan-list" class="admin-business-list"></div>
+                </div>
+                <div class="admin-business-panel">
+                  <div class="admin-business-panel-title">Próximos vencimentos</div>
+                  <div class="admin-business-panel-copy">Quem vence primeiro e qual plano precisa de contato ou renovação.</div>
+                  <div id="admin-business-expiry-list" class="admin-business-list"></div>
+                </div>
+                <div class="admin-business-panel">
+                  <div class="admin-business-panel-title">Cadastros recentes</div>
+                  <div class="admin-business-panel-copy">Últimos acessos criados para acompanhar entrada de novos clientes.</div>
+                  <div id="admin-business-recent-list" class="admin-business-list"></div>
+                </div>
               </div>
             </div>
-            <div id="admin-access-list" class="admin-list"></div>
+          </div>
+
+          <div class="card">
+            <div class="section-header">
+              <h2 class="section-title">Oferta de Lançamento</h2>
+              <span class="text-xs text-[#6b8a99]">Lote Fundador</span>
+            </div>
+            <div class="p-4">
+              <div id="admin-launch-pricing" class="admin-price-grid"></div>
+              <div class="admin-price-note mt-3">Sugestão: destaque o anual como melhor oferta e mantenha estes valores apenas para os primeiros clientes.</div>
+            </div>
           </div>
         </div>
 
-        <div class="card">
-          <div class="section-header">
-            <h2 class="section-title">Histórico Administrativo</h2>
-            <div class="flex flex-col items-end gap-1">
-              <button onclick="loadAdminAuditLogs(false)" class="text-xs font-semibold text-brand hover:text-brand-light transition-colors">Atualizar Histórico</button>
-              <span id="admin-audit-status" class="text-[10px] text-[#6b8a99]">Últimas ações</span>
+        <div id="admin-section-access" class="space-y-4 hidden">
+          <div class="card">
+            <div class="section-header">
+              <h2 class="section-title">Novo Acesso</h2>
+              <button onclick="prefillAdminAccessForm()" class="text-xs font-semibold text-brand hover:text-brand-light transition-colors">Gerar Senha</button>
+            </div>
+            <div class="p-4 space-y-3">
+              <div class="admin-form-grid">
+                <div>
+                  <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Nome</label>
+                  <input type="text" id="admin-access-name" class="input-styled" placeholder="Nome do cliente">
+                </div>
+                <div>
+                  <label class="text-xs text-[#6b8a99] font-medium mb-2 block">E-mail</label>
+                  <input type="email" id="admin-access-email" class="input-styled" placeholder="cliente@email.com">
+                </div>
+                <div>
+                  <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Validade até</label>
+                  <input type="datetime-local" id="admin-access-valid-until-at" class="input-styled">
+                </div>
+                <div>
+                  <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Plano</label>
+                  <select id="admin-access-plan" class="input-styled" onchange="updateAdminPlanValidity()">
+                    <option value="monthly">Mensal</option>
+                    <option value="semiannual">Semestral</option>
+                    <option value="annual">Anual</option>
+                    <option value="trial">Teste 30 min</option>
+                  </select>
+                  <div id="admin-access-plan-note" class="admin-plan-note"></div>
+                </div>
+                <div>
+                  <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Tipo de conta</label>
+                  <select id="admin-access-role" class="input-styled">
+                    <option value="user">Usuário</option>
+                    <option value="admin">Administrador</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Senha temporária</label>
+                <div class="admin-password-box">
+                  <div id="admin-access-password" class="admin-password-value">-</div>
+                  <button onclick="copyAdminPassword()" class="admin-secondary-btn" type="button">Copiar</button>
+                </div>
+              </div>
+              <button onclick="createManagedAccess()" class="w-full py-3.5 bg-brand text-white font-semibold rounded-xl hover:bg-brand-light transition-colors">Criar Acesso e Conta</button>
             </div>
           </div>
-          <div class="p-4">
-            <div id="admin-audit-list" class="admin-audit-list"></div>
+
+          <div class="card">
+            <div class="section-header">
+              <h2 class="section-title">Perfil Teste</h2>
+              <span class="text-xs text-[#6b8a99]">Validade automatica de 30 min</span>
+            </div>
+            <div class="p-4 space-y-3">
+              <div>
+                <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Nome do cliente</label>
+                <input type="text" id="admin-trial-name" class="input-styled" placeholder="Nome para identificar o teste">
+              </div>
+              <div id="admin-trial-credentials" class="admin-password-box" style="display:block;">
+                <div class="text-xs text-[#6b8a99]">Gere um perfil teste para exibir aqui o e-mail e a senha temporária.</div>
+              </div>
+              <div class="admin-access-actions">
+                <button onclick="copyTrialCredentials()" class="admin-secondary-btn" type="button">Copiar teste</button>
+                <button onclick="createTrialAccess()" class="admin-secondary-btn warn" type="button">Gerar perfil teste</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="section-header">
+              <h2 class="section-title">Contas Liberadas</h2>
+              <div class="flex flex-col items-end gap-1">
+                <button onclick="loadAdminData(false)" class="text-xs font-semibold text-brand hover:text-brand-light transition-colors">Atualizar Agora</button>
+                <span id="admin-refresh-status" class="text-[10px] text-[#6b8a99]">Atualização manual</span>
+              </div>
+            </div>
+            <div class="p-4">
+              <div class="admin-list-toolbar">
+                <input
+                  type="search"
+                  id="admin-access-search"
+                  class="input-styled admin-search-input"
+                  placeholder="Buscar por nome ou e-mail"
+                  oninput="setAdminAccessSearch(this.value)"
+                >
+                <div class="admin-filter-tabs" aria-label="Filtros de acessos">
+                  <button type="button" class="admin-filter-btn active" data-admin-filter="all" onclick="setAdminAccessFilter('all')">Todos <span id="admin-filter-all-count" class="admin-filter-count">0</span></button>
+                  <button type="button" class="admin-filter-btn" data-admin-filter="active" onclick="setAdminAccessFilter('active')">Ativos <span id="admin-filter-active-count" class="admin-filter-count">0</span></button>
+                  <button type="button" class="admin-filter-btn" data-admin-filter="blocked" onclick="setAdminAccessFilter('blocked')">Bloqueados <span id="admin-filter-blocked-count" class="admin-filter-count">0</span></button>
+                  <button type="button" class="admin-filter-btn" data-admin-filter="expired" onclick="setAdminAccessFilter('expired')">Expirados <span id="admin-filter-expired-count" class="admin-filter-count">0</span></button>
+                </div>
+              </div>
+              <div id="admin-access-list" class="admin-list"></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="admin-section-audit" class="space-y-4 hidden">
+          <div class="card">
+            <div class="section-header">
+              <h2 class="section-title">Histórico Administrativo</h2>
+              <div class="flex flex-col items-end gap-1">
+                <button onclick="loadAdminAuditLogs(false)" class="text-xs font-semibold text-brand hover:text-brand-light transition-colors">Atualizar Histórico</button>
+                <span id="admin-audit-status" class="text-[10px] text-[#6b8a99]">Últimas ações</span>
+              </div>
+            </div>
+            <div class="p-4">
+              <div id="admin-audit-list" class="admin-audit-list"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -2385,6 +2473,7 @@
     let adminAccessFilter = 'all';
     let adminAccessSearch = '';
     let expandedAdminAccessEmail = null;
+    let adminWorkspaceTab = 'dashboard';
     let pendingAdminDeleteEmail = null;
     let lastTrialCredentials = null;
     let passwordChangeRequired = false;
@@ -7017,6 +7106,121 @@
       safeSetText('admin-stat-blocked', String(blocked));
       safeSetText('admin-stat-expiring', String(expiring));
       safeSetText('admin-stat-claimed', String(claimed));
+      renderAdminBusinessDashboard();
+    }
+
+    function setAdminWorkspaceTab(tab = 'dashboard') {
+      adminWorkspaceTab = ['dashboard', 'access', 'audit'].includes(tab) ? tab : 'dashboard';
+      renderAdminWorkspaceTab();
+    }
+
+    function renderAdminWorkspaceTab() {
+      ['dashboard', 'access', 'audit'].forEach(tab => {
+        document.querySelector(`[data-admin-tab="${tab}"]`)?.classList.toggle('active', adminWorkspaceTab === tab);
+        document.getElementById(`admin-section-${tab}`)?.classList.toggle('hidden', adminWorkspaceTab !== tab);
+      });
+    }
+
+    function getCommercialPlanValue(planType = 'manual') {
+      return Number(LAUNCH_PLAN_PRICES[planType]?.price || 0);
+    }
+
+    function getCommercialMonthlyEquivalent(planType = 'manual') {
+      const price = getCommercialPlanValue(planType);
+      if (!price) return 0;
+      if (planType === 'semiannual') return price / 6;
+      if (planType === 'annual') return price / 12;
+      return price;
+    }
+
+    function renderAdminBusinessDashboard() {
+      const paidActiveRows = adminAccessRows.filter(row =>
+        row.effectiveStatus === 'active'
+        && !row.is_trial
+        && row.role !== 'admin'
+        && ['monthly', 'semiannual', 'annual'].includes(row.plan_type)
+      );
+      const monthlyEstimate = paidActiveRows.reduce((sum, row) => sum + getCommercialMonthlyEquivalent(row.plan_type), 0);
+      const contractedActive = paidActiveRows.reduce((sum, row) => sum + getCommercialPlanValue(row.plan_type), 0);
+      const expiring30 = paidActiveRows.filter(row => {
+        const expiry = getAccessExpiryDate(row);
+        if (!expiry) return false;
+        const diff = expiry.getTime() - Date.now();
+        return diff >= 0 && diff <= 30 * 24 * 60 * 60 * 1000;
+      });
+
+      safeSetText('admin-business-mrr', formatMoney(monthlyEstimate));
+      safeSetText('admin-business-contract', formatMoney(contractedActive));
+      safeSetText('admin-business-active-paid', String(paidActiveRows.length));
+      safeSetText('admin-business-expiring-30', String(expiring30.length));
+
+      const planContainer = document.getElementById('admin-business-plan-list');
+      const expiryContainer = document.getElementById('admin-business-expiry-list');
+      const recentContainer = document.getElementById('admin-business-recent-list');
+      if (!planContainer || !expiryContainer || !recentContainer) return;
+
+      const planOrder = ['monthly', 'semiannual', 'annual'];
+      const planRows = planOrder.map(planType => {
+        const rows = paidActiveRows.filter(row => row.plan_type === planType);
+        return {
+          planType,
+          count: rows.length,
+          totalValue: rows.reduce((sum, row) => sum + getCommercialPlanValue(row.plan_type), 0),
+          monthlyValue: rows.reduce((sum, row) => sum + getCommercialMonthlyEquivalent(row.plan_type), 0)
+        };
+      });
+
+      planContainer.innerHTML = planRows.map(item => `
+        <div class="admin-business-row">
+          <div class="admin-business-row-main">
+            <div class="admin-business-row-title">${escapeHtml(getPlanLabel(item.planType))}</div>
+            <div class="admin-business-row-meta">${item.count} ${item.count === 1 ? 'cliente ativo' : 'clientes ativos'} · Equivale a ${formatMoney(item.monthlyValue)}/mês</div>
+          </div>
+          <div class="admin-business-row-value ${item.count ? 'good' : ''}">${formatMoney(item.totalValue)}</div>
+        </div>
+      `).join('') || '<div class="admin-empty">Nenhum plano ativo ainda.</div>';
+
+      const upcomingRows = expiring30
+        .sort((a, b) => (getAccessExpiryDate(a)?.getTime() || 0) - (getAccessExpiryDate(b)?.getTime() || 0))
+        .slice(0, 6);
+
+      expiryContainer.innerHTML = upcomingRows.length
+        ? upcomingRows.map(row => {
+            const expiry = getAccessExpiryDate(row);
+            const diffDays = expiry ? Math.max(0, Math.ceil((expiry.getTime() - Date.now()) / (24 * 60 * 60 * 1000))) : null;
+            const displayName = row.full_name || row.profile?.full_name || row.email;
+            return `
+              <div class="admin-business-row">
+                <div class="admin-business-row-main">
+                  <div class="admin-business-row-title">${escapeHtml(displayName)}</div>
+                  <div class="admin-business-row-meta">${escapeHtml(getPlanLabel(row.plan_type))} · ${escapeHtml(row.email)}</div>
+                </div>
+                <div class="admin-business-row-value warn">${diffDays === 0 ? 'Hoje' : `${diffDays}d`} · ${formatAccessExpiry(row, { withTime: false })}</div>
+              </div>
+            `;
+          }).join('')
+        : '<div class="admin-empty">Nenhum vencimento nos próximos 30 dias.</div>';
+
+      const recentRows = [...adminAccessRows]
+        .filter(row => row.role !== 'admin')
+        .sort((a, b) => parseTimestamp(b.account_created_at || b.created_at || b.updated_at) - parseTimestamp(a.account_created_at || a.created_at || a.updated_at))
+        .slice(0, 6);
+
+      recentContainer.innerHTML = recentRows.length
+        ? recentRows.map(row => {
+            const displayName = row.full_name || row.profile?.full_name || row.email;
+            const createdAt = parseTimestamp(row.account_created_at || row.created_at || row.updated_at);
+            return `
+              <div class="admin-business-row">
+                <div class="admin-business-row-main">
+                  <div class="admin-business-row-title">${escapeHtml(displayName)}</div>
+                  <div class="admin-business-row-meta">${escapeHtml(row.email)} · ${escapeHtml(getPlanLabel(row.plan_type))}</div>
+                </div>
+                <div class="admin-business-row-value">${createdAt ? new Date(createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : 'Sem data'}</div>
+              </div>
+            `;
+          }).join('')
+        : '<div class="admin-empty">Nenhum cadastro recente para exibir.</div>';
     }
 
     function getAdminAccessStatusLabel(row) {
@@ -7069,7 +7273,7 @@
     }
 
     function getAdminAccessSearchText(row) {
-      return [
+      const text = [
         row.full_name,
         row.profile?.full_name,
         row.email,
@@ -7401,7 +7605,9 @@
       document.getElementById('admin-gate')?.classList.toggle('hidden', isAdmin);
       document.getElementById('admin-content')?.classList.toggle('hidden', !isAdmin);
       if (!isAdmin) return;
+      renderAdminWorkspaceTab();
       renderLaunchPricingCards();
+      renderAdminBusinessDashboard();
       prefillAdminAccessForm();
       startAdminAutoRefresh();
     }
