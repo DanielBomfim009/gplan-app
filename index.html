@@ -634,6 +634,8 @@
     .admin-business-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
     .admin-business-card { padding: 15px; border-radius: 16px; background: rgba(13, 31, 45, 0.82); border: 1px solid rgba(0, 180, 160, 0.08); }
     .admin-business-card.emphasis { background: linear-gradient(145deg, rgba(0, 180, 160, 0.14), rgba(13, 31, 45, 0.88)); border-color: rgba(0, 180, 160, 0.2); }
+    .admin-business-card.clickable { cursor: pointer; transition: transform .18s ease, border-color .18s ease, background .18s ease; }
+    .admin-business-card.clickable:hover { transform: translateY(-1px); border-color: rgba(0, 180, 160, 0.2); background: rgba(15, 37, 53, 0.9); }
     .admin-business-label { color: #6b8a99; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
     .admin-business-value { margin-top: 8px; color: #ffffff; font-size: 22px; font-weight: 800; line-height: 1.1; }
     .admin-business-note { margin-top: 6px; color: #86a8b7; font-size: 11px; line-height: 1.45; }
@@ -649,6 +651,7 @@
     .admin-business-row-value { color: #ffffff; font-size: 12px; font-weight: 800; text-align: right; white-space: nowrap; }
     .admin-business-row-value.warn { color: #ffd36b; }
     .admin-business-row-value.good { color: #7fe6d7; }
+    .admin-business-row-action { width: 100%; margin-top: 9px; padding: 9px 10px; border-radius: 11px; border: 1px solid rgba(0, 180, 160, 0.12); background: rgba(0, 180, 160, 0.08); color: #7fe6d7; font-size: 11px; font-weight: 800; cursor: pointer; }
     .admin-price-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
     .admin-price-card { padding: 13px; border-radius: 14px; background: rgba(13, 31, 45, 0.82); border: 1px solid rgba(0, 180, 160, 0.10); }
     .admin-price-card.highlight { border-color: rgba(0, 180, 160, 0.32); background: rgba(0, 180, 160, 0.09); }
@@ -1982,20 +1985,20 @@
                   <div class="admin-business-value" id="admin-business-mrr">R$ 0,00</div>
                   <div class="admin-business-note">Equivalente mensal dos planos ativos, para acompanhar a previsibilidade do app.</div>
                 </div>
-                <div class="admin-business-card">
+                <div class="admin-business-card clickable" onclick="openAdminAccessFromDashboard('', 'active')">
                   <div class="admin-business-label">Receita contratada ativa</div>
                   <div class="admin-business-value" id="admin-business-contract">R$ 0,00</div>
-                  <div class="admin-business-note">Soma do valor dos planos ativos no ciclo atual.</div>
+                  <div class="admin-business-note">Soma do valor dos planos ativos no ciclo atual. Toque para ver os clientes ativos.</div>
                 </div>
-                <div class="admin-business-card">
+                <div class="admin-business-card clickable" onclick="openAdminAccessFromDashboard('', 'active')">
                   <div class="admin-business-label">Clientes pagantes</div>
                   <div class="admin-business-value" id="admin-business-active-paid">0</div>
-                  <div class="admin-business-note">Contas ativas nos planos mensal, semestral e anual.</div>
+                  <div class="admin-business-note">Contas ativas nos planos mensal, semestral e anual. Toque para abrir os cadastros.</div>
                 </div>
-                <div class="admin-business-card">
+                <div class="admin-business-card clickable" onclick="openAdminAccessFromDashboard('', 'expired')">
                   <div class="admin-business-label">Vencem em 30 dias</div>
                   <div class="admin-business-value" id="admin-business-expiring-30">0</div>
-                  <div class="admin-business-note">Renovações que pedem atenção para não perder receita.</div>
+                  <div class="admin-business-note">Renovações que pedem atenção para não perder receita. Toque para abrir a gestão de acessos.</div>
                 </div>
               </div>
               <div class="admin-business-panels">
@@ -7121,6 +7124,19 @@
       });
     }
 
+    function openAdminAccessFromDashboard(email = '', filter = 'all') {
+      const normalizedEmail = normalizeEmail(email);
+      setAdminWorkspaceTab('access');
+      setAdminAccessFilter(filter);
+      if (normalizedEmail) {
+        const searchInput = document.getElementById('admin-access-search');
+        if (searchInput) searchInput.value = normalizedEmail;
+        setAdminAccessSearch(normalizedEmail);
+        expandedAdminAccessEmail = normalizedEmail;
+      }
+      renderAdminAccessList();
+    }
+
     function getCommercialPlanValue(planType = 'manual') {
       return Number(LAUNCH_PLAN_PRICES[planType]?.price || 0);
     }
@@ -7194,6 +7210,7 @@
                 <div class="admin-business-row-main">
                   <div class="admin-business-row-title">${escapeHtml(displayName)}</div>
                   <div class="admin-business-row-meta">${escapeHtml(getPlanLabel(row.plan_type))} · ${escapeHtml(row.email)}</div>
+                  <button type="button" class="admin-business-row-action" onclick="openAdminAccessFromDashboard('${escapeJsString(row.email)}', 'active')">Abrir cadastro para renovar</button>
                 </div>
                 <div class="admin-business-row-value warn">${diffDays === 0 ? 'Hoje' : `${diffDays}d`} · ${formatAccessExpiry(row, { withTime: false })}</div>
               </div>
@@ -7215,6 +7232,7 @@
                 <div class="admin-business-row-main">
                   <div class="admin-business-row-title">${escapeHtml(displayName)}</div>
                   <div class="admin-business-row-meta">${escapeHtml(row.email)} · ${escapeHtml(getPlanLabel(row.plan_type))}</div>
+                  <button type="button" class="admin-business-row-action" onclick="openAdminAccessFromDashboard('${escapeJsString(row.email)}', 'all')">Abrir cadastro</button>
                 </div>
                 <div class="admin-business-row-value">${createdAt ? new Date(createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : 'Sem data'}</div>
               </div>
