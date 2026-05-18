@@ -6799,10 +6799,9 @@
     }
 
     function buildManagedAccessMessage(data = {}) {
-      const displayName = data.fullName || data.email || 'cliente';
       const planLabel = getPlanLabel(data.planType);
       const expiryLabel = data.validUntilAt ? formatAccessExpiry({ valid_until_at: data.validUntilAt }) : 'sem data definida';
-      return `Olá, ${displayName}!\n\nSeu acesso ao GPlan foi liberado com sucesso.\n\nLink do app: ${APP_ACCESS_URL}\nE-mail: ${data.email}\nSenha temporária: ${data.password}\nPlano: ${planLabel}\nValidade: ${expiryLabel}\n\nNo primeiro acesso, altere sua senha.\nSe precisar de suporte, responda esta mensagem.`;
+      return `Olá, tudo bem?\n\nSeu acesso ao GPlan foi liberado com sucesso.\n\nLink do aplicativo:\n${APP_ACCESS_URL}\n\nE-mail de acesso:\n${data.email}\n\nSenha temporária:\n${data.password}\n\nPlano:\n${planLabel}\n\nValidade:\n${expiryLabel}\n\nNo primeiro acesso, recomendo alterar sua senha.\nSe precisar de suporte, me chama por aqui.`;
     }
 
     function copyManagedAccessMessage() {
