@@ -2010,7 +2010,7 @@
                 </div>
                 <div class="admin-business-panel">
                   <div class="admin-business-panel-title">Próximos vencimentos</div>
-                  <div class="admin-business-panel-copy">Quem vence primeiro e qual plano precisa de contato ou renovação.</div>
+                  <div class="admin-business-panel-copy">Quem vence primeiro, quanto tempo falta e se vale lembrar manualmente da renovação.</div>
                   <div id="admin-business-expiry-list" class="admin-business-list"></div>
                 </div>
                 <div class="admin-business-panel">
@@ -2696,6 +2696,11 @@
       if (isExpiredDate(record)) return 'expired';
       return 'active';
     };
+    const getDaysUntilAccessExpiry = (record) => {
+      const expiry = getAccessExpiryDate(record);
+      if (!expiry) return null;
+      return Math.ceil((expiry.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+    };
     const isAdminRole = (role) => role === 'admin';
     const formatAccessExpiry = (record, { withTime = true } = {}) => {
       const expiry = getAccessExpiryDate(record);
@@ -2738,6 +2743,7 @@
     const getPlanLabel = (plan) => PLAN_LABELS[plan] || 'Manual';
     const getPaymentMethodLabel = (method) => PAYMENT_METHOD_LABELS[method] || String(method || '').trim() || 'Não informado';
     const getSalePlatformLabel = (platform) => SALE_PLATFORM_LABELS[platform] || String(platform || '').trim() || 'Não informado';
+    const requiresManualRenewalReminder = (method) => !['credit_card'].includes(String(method || '').trim());
     const formatPlanPrice = (plan) => {
       const price = LAUNCH_PLAN_PRICES[plan]?.price;
       if (typeof price !== 'number') return 'Sem preço comercial';
@@ -7255,17 +7261,20 @@
 
       expiryContainer.innerHTML = upcomingRows.length
         ? upcomingRows.map(row => {
-            const expiry = getAccessExpiryDate(row);
-            const diffDays = expiry ? Math.max(0, Math.ceil((expiry.getTime() - Date.now()) / (24 * 60 * 60 * 1000))) : null;
+            const diffDays = getDaysUntilAccessExpiry(row);
             const displayName = row.full_name || row.profile?.full_name || row.email;
+            const paymentMethod = getPaymentMethodLabel(row.purchase_reference);
+            const reminderText = requiresManualRenewalReminder(row.purchase_reference)
+              ? 'Pede lembrete manual'
+              : 'Renovação automática';
             return `
               <div class="admin-business-row">
                 <div class="admin-business-row-main">
                   <div class="admin-business-row-title">${escapeHtml(displayName)}</div>
-                  <div class="admin-business-row-meta">${escapeHtml(getPlanLabel(row.plan_type))} · ${escapeHtml(row.email)}</div>
+                  <div class="admin-business-row-meta">${escapeHtml(getPlanLabel(row.plan_type))} · ${escapeHtml(paymentMethod)} · ${escapeHtml(reminderText)}</div>
                   <button type="button" class="admin-business-row-action" onclick="openAdminAccessFromDashboard('${escapeJsString(row.email)}', 'active')">Abrir cadastro para renovar</button>
                 </div>
-                <div class="admin-business-row-value warn">${diffDays === 0 ? 'Hoje' : `${diffDays}d`} · ${formatAccessExpiry(row, { withTime: false })}</div>
+                <div class="admin-business-row-value warn">${diffDays < 0 ? 'Vencido' : diffDays === 0 ? 'Hoje' : `${diffDays}d`} · ${formatAccessExpiry(row, { withTime: false })}</div>
               </div>
             `;
           }).join('')
@@ -7463,6 +7472,14 @@
         const displayName = row.full_name || row.profile?.full_name || 'Sem nome definido';
         const platformText = row.purchase_platform ? `Via ${getSalePlatformLabel(row.purchase_platform)}` : 'Cadastro manual';
         const paymentMethodText = getPaymentMethodLabel(row.purchase_reference);
+        const remainingDays = getDaysUntilAccessExpiry(row);
+        const remainingText = remainingDays == null
+          ? 'Sem limite'
+          : remainingDays < 0
+            ? 'Vencido'
+            : remainingDays === 0
+              ? 'Vence hoje'
+              : `${remainingDays} dias`;
 
         return `
           <div class="admin-access-card compact">
@@ -7510,6 +7527,10 @@
                   <div class="admin-mini-item">
                     <div class="admin-mini-label">Pagamento</div>
                     <div class="admin-mini-value">${escapeHtml(paymentMethodText)}</div>
+                  </div>
+                  <div class="admin-mini-item">
+                    <div class="admin-mini-label">Tempo restante</div>
+                    <div class="admin-mini-value">${escapeHtml(remainingText)}</div>
                   </div>
                 </div>
                 <div class="admin-validity-row space-y-2">
