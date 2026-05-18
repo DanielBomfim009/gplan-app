@@ -2109,6 +2109,9 @@
                   <button onclick="copyAdminPassword()" class="admin-secondary-btn" type="button">Copiar</button>
                 </div>
               </div>
+              <div class="admin-access-actions">
+                <button onclick="copyManagedAccessMessage()" class="admin-secondary-btn" type="button">Copiar mensagem de acesso</button>
+              </div>
               <button onclick="createManagedAccess()" class="w-full py-3.5 bg-brand text-white font-semibold rounded-xl hover:bg-brand-light transition-colors">Criar Acesso e Conta</button>
             </div>
           </div>
@@ -2509,6 +2512,7 @@
     let expandedAdminAccessEmail = null;
     let adminWorkspaceTab = 'dashboard';
     let pendingAdminDeleteEmail = null;
+    let lastCreatedManagedAccess = null;
     let lastTrialCredentials = null;
     let passwordChangeRequired = false;
     let isChangingPassword = false;
@@ -2735,6 +2739,7 @@
       manual: 'Manual',
       other: 'Outro'
     };
+    const APP_ACCESS_URL = 'https://app.gplanapp.com.br';
     const LAUNCH_PLAN_PRICES = {
       monthly: { price: 9.90, equivalent: 'R$ 9,90/mês', note: 'Entrada barata para testar sem compromisso.' },
       semiannual: { price: 49.90, equivalent: 'R$ 8,32/mês', note: 'Bom equilíbrio entre preço e retenção.' },
@@ -2744,6 +2749,10 @@
     const getPaymentMethodLabel = (method) => PAYMENT_METHOD_LABELS[method] || String(method || '').trim() || 'Não informado';
     const getSalePlatformLabel = (platform) => SALE_PLATFORM_LABELS[platform] || String(platform || '').trim() || 'Não informado';
     const requiresManualRenewalReminder = (method) => !['credit_card'].includes(String(method || '').trim());
+    const copyTextToClipboard = async (text, successMessage = 'Copiado com sucesso.') => {
+      await navigator.clipboard?.writeText(text);
+      showToast(successMessage);
+    };
     const formatPlanPrice = (plan) => {
       const price = LAUNCH_PLAN_PRICES[plan]?.price;
       if (typeof price !== 'number') return 'Sem preço comercial';
@@ -6773,9 +6782,7 @@
         showToast('Gere uma senha primeiro.', 'error');
         return;
       }
-      navigator.clipboard?.writeText(password).then(() => {
-        showToast('Senha temporária copiada!');
-      }).catch(() => {
+      copyTextToClipboard(password, 'Senha temporária copiada!').catch(() => {
         showToast('Não foi possível copiar agora.', 'error');
       });
     }
@@ -6786,9 +6793,55 @@
         return;
       }
       const text = `E-mail: ${lastTrialCredentials.email}\nSenha: ${lastTrialCredentials.password}\nValidade: ${lastTrialCredentials.expiresAt}`;
-      navigator.clipboard?.writeText(text).then(() => {
-        showToast('Credenciais do teste copiadas.');
-      }).catch(() => {
+      copyTextToClipboard(text, 'Credenciais do teste copiadas.').catch(() => {
+        showToast('Não foi possível copiar agora.', 'error');
+      });
+    }
+
+    function buildManagedAccessMessage(data = {}) {
+      const displayName = data.fullName || data.email || 'cliente';
+      const planLabel = getPlanLabel(data.planType);
+      const expiryLabel = data.validUntilAt ? formatAccessExpiry({ valid_until_at: data.validUntilAt }) : 'sem data definida';
+      return `Olá, ${displayName}!\n\nSeu acesso ao GPlan foi liberado com sucesso.\n\nLink do app: ${APP_ACCESS_URL}\nE-mail: ${data.email}\nSenha temporária: ${data.password}\nPlano: ${planLabel}\nValidade: ${expiryLabel}\n\nNo primeiro acesso, altere sua senha.\nSe precisar de suporte, responda esta mensagem.`;
+    }
+
+    function copyManagedAccessMessage() {
+      if (!lastCreatedManagedAccess?.email || !lastCreatedManagedAccess?.password) {
+        showToast('Crie um acesso primeiro para gerar a mensagem pronta.', 'error');
+        return;
+      }
+      const text = buildManagedAccessMessage(lastCreatedManagedAccess);
+      copyTextToClipboard(text, 'Mensagem de acesso copiada.').catch(() => {
+        showToast('Não foi possível copiar agora.', 'error');
+      });
+    }
+
+    function buildRenewalReminderMessage(row) {
+      const displayName = row.full_name || row.profile?.full_name || row.email || 'cliente';
+      const expiryLabel = formatAccessExpiry(row, { withTime: false });
+      const days = getDaysUntilAccessExpiry(row);
+      const remainingText = days == null
+        ? 'em breve'
+        : days < 0
+          ? 'já venceu'
+          : days === 0
+            ? 'vence hoje'
+            : `vence em ${days} dias`;
+      return `Olá, ${displayName}!\n\nPassando para lembrar que seu acesso ao GPlan ${remainingText}.\n\nPlano atual: ${getPlanLabel(row.plan_type)}\nValidade: ${expiryLabel}\nMétodo utilizado na contratação: ${getPaymentMethodLabel(row.purchase_reference)}\n\nSe quiser renovar, me responda esta mensagem e eu libero a continuidade do seu acesso.`;
+    }
+
+    function copyRenewalReminder(email) {
+      const row = adminAccessRows.find(item => normalizeEmail(item.email) === normalizeEmail(email));
+      if (!row) {
+        showToast('Não encontrei esse cadastro para gerar o lembrete.', 'error');
+        return;
+      }
+      if (!requiresManualRenewalReminder(row.purchase_reference)) {
+        showToast('Esse cliente está em cartão. Normalmente a renovação é automática.', 'error');
+        return;
+      }
+      const text = buildRenewalReminderMessage(row);
+      copyTextToClipboard(text, 'Lembrete de renovação copiado.').catch(() => {
         showToast('Não foi possível copiar agora.', 'error');
       });
     }
@@ -7006,7 +7059,16 @@
         if (error) throw error;
         if (!data) throw new Error('O Supabase não retornou confirmação do acesso criado.');
         safeSetText('admin-refresh-status', `Acesso criado: ${email} | Senha: ${tempPassword}`);
-        navigator.clipboard?.writeText(`E-mail: ${email}\nSenha: ${tempPassword}`).catch(() => {});
+        lastCreatedManagedAccess = {
+          email,
+          fullName,
+          password: tempPassword,
+          planType,
+          validUntilAt,
+          paymentMethod,
+          salePlatform
+        };
+        navigator.clipboard?.writeText(buildManagedAccessMessage(lastCreatedManagedAccess)).catch(() => {});
 
         document.getElementById('admin-access-email').value = '';
         document.getElementById('admin-access-name').value = '';
@@ -7018,7 +7080,7 @@
         await recordAdminAudit('create_access', email, fullName, `Plano ${getPlanLabel(planType)} com validade até ${formatAccessExpiry({ valid_until_at: validUntilAt })}. Origem: ${getSalePlatformLabel(salePlatform)}. Pagamento: ${getPaymentMethodLabel(paymentMethod)}.`);
         await loadAdminData(false);
         safeSetText('admin-refresh-status', `Acesso criado: ${email} | Senha: ${tempPassword}`);
-        showToast('Acesso criado. Dados copiados para envio ao cliente.');
+        showToast('Acesso criado. Mensagem pronta copiada para envio ao cliente.');
       } catch (error) {
         console.error('Falha ao criar acesso:', error);
         const message = getReadableError(error);
@@ -7542,6 +7604,7 @@
                   <button class="admin-secondary-btn" onclick="applyManagedAccessPlan('${escapeJsString(row.email)}', 'semiannual')">Semestral</button>
                   <button class="admin-secondary-btn" onclick="applyManagedAccessPlan('${escapeJsString(row.email)}', 'annual')">Anual</button>
                   <button class="admin-secondary-btn" onclick="updateManagedAccessValidity('${escapeJsString(row.email)}')">Salvar validade</button>
+                  ${requiresManualRenewalReminder(row.purchase_reference) ? `<button class="admin-secondary-btn" onclick="copyRenewalReminder('${escapeJsString(row.email)}')">Copiar lembrete</button>` : ''}
                   <button class="admin-secondary-btn warn" onclick="toggleManagedAccessStatus('${escapeJsString(row.email)}')">${row.effectiveStatus === 'blocked' ? 'Reativar' : 'Bloquear'}</button>
                   <button class="admin-secondary-btn" onclick="regenerateManagedPassword('${escapeJsString(row.email)}')">Gerar senha inicial</button>
                   <button class="admin-secondary-btn danger" onclick="openAdminDeleteAccessModal('${escapeJsString(row.email)}')">Excluir acesso</button>
