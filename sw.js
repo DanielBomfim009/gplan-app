@@ -1,9 +1,10 @@
-const VERSION = 'v57';
+const VERSION = 'v58';
 const CACHE_NAME = `controle-financeiro-${VERSION}`;
 const CORE_ASSETS = [
   './',
   './index.html',
-  './manifest.json'
+  './manifest.json',
+  './maintenance.json'
 ];
 
 const OPTIONAL_ASSETS = [
@@ -106,6 +107,7 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   const isSameOrigin = url.origin === self.location.origin;
   const isDocument = request.mode === 'navigate';
+  const isMaintenanceConfig = isSameOrigin && url.pathname.endsWith('/maintenance.json');
   const isStyleLike =
     request.destination === 'style' ||
     request.destination === 'script' ||
@@ -113,6 +115,11 @@ self.addEventListener('fetch', (event) => {
     request.url.includes('fonts.googleapis.com') ||
     request.url.includes('fonts.gstatic.com') ||
     request.url.includes('cdn.tailwindcss.com');
+
+  if (isMaintenanceConfig) {
+    event.respondWith(fetch(new Request(request, { cache: 'no-store' })));
+    return;
+  }
 
   if (isDocument) {
     event.respondWith(networkFirst(request));

@@ -1,0 +1,7 @@
+{
+  "enabled": false,
+  "title": "Estamos realizando uma atualização no GPlan",
+  "message": "Voltamos em breve. Durante esse período, novos acessos e sincronizações ficam temporariamente indisponíveis para evitar impacto no uso dos clientes.",
+  "detail": "Se você já é cliente, aguarde a conclusão da manutenção antes de tentar entrar novamente.",
+  "window_label": "Janela informada: manutenção controlada."
+}
