@@ -1,4 +1,4 @@
-const VERSION = 'v53';
+const VERSION = 'v54';
 const CACHE_NAME = `controle-financeiro-${VERSION}`;
 const CORE_ASSETS = [
   './',

@@ -643,6 +643,7 @@
     .admin-business-panel { padding: 14px; border-radius: 16px; background: rgba(13, 31, 45, 0.82); border: 1px solid rgba(0, 180, 160, 0.08); }
     .admin-business-panel-title { color: #ffffff; font-size: 13px; font-weight: 800; }
     .admin-business-panel-copy { margin-top: 4px; color: #86a8b7; font-size: 11px; line-height: 1.45; }
+    .admin-business-panel-copy strong { color: #ffffff; }
     .admin-business-list { display: grid; gap: 8px; margin-top: 12px; }
     .admin-business-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 11px; border-radius: 12px; background: rgba(7, 18, 28, 0.38); border: 1px solid rgba(0, 180, 160, 0.06); }
     .admin-business-row-main { min-width: 0; }
@@ -2017,6 +2018,11 @@
                   <div class="admin-business-panel-copy">Últimos acessos criados para acompanhar entrada de novos clientes.</div>
                   <div id="admin-business-recent-list" class="admin-business-list"></div>
                 </div>
+                <div class="admin-business-panel">
+                  <div class="admin-business-panel-title">Previsão de renovação</div>
+                  <div class="admin-business-panel-copy">Estimativa por mês baseada nas assinaturas ativas que vencem em cada período.</div>
+                  <div id="admin-business-renewal-forecast" class="admin-business-list"></div>
+                </div>
               </div>
             </div>
           </div>
@@ -2068,6 +2074,17 @@
                   <select id="admin-access-role" class="input-styled">
                     <option value="user">Usuário</option>
                     <option value="admin">Administrador</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Método de pagamento</label>
+                  <select id="admin-access-payment-method" class="input-styled">
+                    <option value="pix">Pix</option>
+                    <option value="credit_card">Cartão de crédito</option>
+                    <option value="boleto">Boleto</option>
+                    <option value="transfer">Transferência</option>
+                    <option value="cash">Dinheiro</option>
+                    <option value="other">Outro</option>
                   </select>
                 </div>
               </div>
@@ -2685,12 +2702,21 @@
       trial: 'Teste',
       manual: 'Manual'
     };
+    const PAYMENT_METHOD_LABELS = {
+      pix: 'Pix',
+      credit_card: 'Cartão de crédito',
+      boleto: 'Boleto',
+      transfer: 'Transferência',
+      cash: 'Dinheiro',
+      other: 'Outro'
+    };
     const LAUNCH_PLAN_PRICES = {
       monthly: { price: 9.90, equivalent: 'R$ 9,90/mês', note: 'Entrada barata para testar sem compromisso.' },
       semiannual: { price: 49.90, equivalent: 'R$ 8,32/mês', note: 'Bom equilíbrio entre preço e retenção.' },
       annual: { price: 89.90, equivalent: 'R$ 7,49/mês', note: 'Mais vantajoso para lançamento.' }
     };
     const getPlanLabel = (plan) => PLAN_LABELS[plan] || 'Manual';
+    const getPaymentMethodLabel = (method) => PAYMENT_METHOD_LABELS[method] || String(method || '').trim() || 'Não informado';
     const formatPlanPrice = (plan) => {
       const price = LAUNCH_PLAN_PRICES[plan]?.price;
       if (typeof price !== 'number') return 'Sem preço comercial';
@@ -6909,6 +6935,7 @@
       const validUntilAt = toIsoFromDateTimeLocal(validUntilInput);
       const role = document.getElementById('admin-access-role')?.value || 'user';
       const planType = document.getElementById('admin-access-plan')?.value || 'monthly';
+      const paymentMethod = document.getElementById('admin-access-payment-method')?.value || 'pix';
       const tempPassword = document.getElementById('admin-access-password')?.textContent?.trim();
 
       if (!email) {
@@ -6942,8 +6969,8 @@
             selected_plan: planType,
             selected_valid_until_at: validUntilAt,
             temp_password_value: tempPassword,
-            selected_platform: 'manual',
-            selected_reference: null
+            selected_platform: 'kiwify',
+            selected_reference: paymentMethod
           }),
           20000,
           'Tempo limite ao criar acesso.'
@@ -6957,8 +6984,9 @@
         document.getElementById('admin-access-name').value = '';
         document.getElementById('admin-access-role').value = 'user';
         document.getElementById('admin-access-plan').value = 'monthly';
+        document.getElementById('admin-access-payment-method').value = 'pix';
         prefillAdminAccessForm();
-        await recordAdminAudit('create_access', email, fullName, `Plano ${getPlanLabel(planType)} com validade até ${formatAccessExpiry({ valid_until_at: validUntilAt })}.`);
+        await recordAdminAudit('create_access', email, fullName, `Plano ${getPlanLabel(planType)} com validade até ${formatAccessExpiry({ valid_until_at: validUntilAt })}. Pagamento: ${getPaymentMethodLabel(paymentMethod)}.`);
         await loadAdminData(false);
         safeSetText('admin-refresh-status', `Acesso criado: ${email} | Senha: ${tempPassword}`);
         showToast('Acesso criado. Dados copiados para envio ao cliente.');
@@ -7173,7 +7201,8 @@
       const planContainer = document.getElementById('admin-business-plan-list');
       const expiryContainer = document.getElementById('admin-business-expiry-list');
       const recentContainer = document.getElementById('admin-business-recent-list');
-      if (!planContainer || !expiryContainer || !recentContainer) return;
+      const renewalContainer = document.getElementById('admin-business-renewal-forecast');
+      if (!planContainer || !expiryContainer || !recentContainer || !renewalContainer) return;
 
       const planOrder = ['monthly', 'semiannual', 'annual'];
       const planRows = planOrder.map(planType => {
@@ -7239,6 +7268,38 @@
             `;
           }).join('')
         : '<div class="admin-empty">Nenhum cadastro recente para exibir.</div>';
+
+      const forecastMonths = [];
+      const now = new Date();
+      for (let index = 0; index < 4; index += 1) {
+        const monthDate = new Date(now.getFullYear(), now.getMonth() + index, 1);
+        forecastMonths.push({
+          key: getMonthKeyFromDate(monthDate),
+          label: monthDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+        });
+      }
+
+      const renewalsByMonth = forecastMonths.map(month => {
+        const rows = paidActiveRows.filter(row => {
+          const expiry = getAccessExpiryDate(row);
+          return expiry && getMonthKeyFromDate(expiry) === month.key;
+        });
+        return {
+          ...month,
+          count: rows.length,
+          expectedValue: rows.reduce((sum, row) => sum + getCommercialPlanValue(row.plan_type), 0)
+        };
+      });
+
+      renewalContainer.innerHTML = renewalsByMonth.map(item => `
+        <div class="admin-business-row">
+          <div class="admin-business-row-main">
+            <div class="admin-business-row-title">${escapeHtml(item.label)}</div>
+            <div class="admin-business-row-meta">${item.count} ${item.count === 1 ? 'renovação prevista' : 'renovações previstas'} neste mês.</div>
+          </div>
+          <div class="admin-business-row-value ${item.expectedValue ? 'good' : ''}">${formatMoney(item.expectedValue)}</div>
+        </div>
+      `).join('');
     }
 
     function getAdminAccessStatusLabel(row) {
@@ -7296,6 +7357,7 @@
         row.profile?.full_name,
         row.email,
         getPlanLabel(row.plan_type),
+        getPaymentMethodLabel(row.purchase_reference),
         getAdminAccessStatusLabel(row),
         row.role === 'admin' ? 'Administrador' : 'Usuário',
         row.purchase_platform
@@ -7356,6 +7418,7 @@
         const roleLabel = row.role === 'admin' ? 'Administrador' : 'Usuário';
         const displayName = row.full_name || row.profile?.full_name || 'Sem nome definido';
         const platformText = row.purchase_platform ? `Via ${row.purchase_platform}` : 'Cadastro manual';
+        const paymentMethodText = getPaymentMethodLabel(row.purchase_reference);
 
         return `
           <div class="admin-access-card compact">
@@ -7399,6 +7462,10 @@
                   <div class="admin-mini-item">
                     <div class="admin-mini-label">Origem</div>
                     <div class="admin-mini-value">${escapeHtml(platformText)}</div>
+                  </div>
+                  <div class="admin-mini-item">
+                    <div class="admin-mini-label">Pagamento</div>
+                    <div class="admin-mini-value">${escapeHtml(paymentMethodText)}</div>
                   </div>
                 </div>
                 <div class="admin-validity-row space-y-2">
