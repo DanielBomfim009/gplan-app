@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Controle Financeiro">
+  <defs>
+    <linearGradient id="bg" x1="80" y1="48" x2="432" y2="464" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#00d4b8"/>
+      <stop offset="0.52" stop-color="#00b4a0"/>
+      <stop offset="1" stop-color="#008577"/>
+    </linearGradient>
+    <filter id="shadow" x="48" y="50" width="416" height="420" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="22" stdDeviation="24" flood-color="#031018" flood-opacity="0.34"/>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="#0d1f2d"/>
+  <g filter="url(#shadow)">
+    <rect x="86" y="78" width="340" height="356" rx="88" fill="url(#bg)"/>
+  </g>
+  <path d="M166 284c0-49 40-89 89-89h96c17 0 31 14 31 31s-14 31-31 31h-96c-15 0-27 12-27 27s12 27 27 27h57c17 0 31 14 31 31s-14 31-31 31h-57c-49 0-89-40-89-89Z" fill="#e8f4f8"/>
+  <path d="M182 172c0-18 15-33 33-33h84c18 0 33 15 33 33s-15 33-33 33h-84c-18 0-33-15-33-33Z" fill="#ffb300"/>
+  <circle cx="335" cy="342" r="31" fill="#ffb300"/>
+</svg>

@@ -1,0 +1,1293 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Controle Financeiro</title>
+
+  <!-- PWA / Instalação -->
+  <meta name="theme-color" content="#00b4a0">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Controle">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="logo-192.png">
+  <link rel="icon" href="logo-192.png" type="image/png">
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <script>
+    window.tailwind = window.tailwind || {};
+    window.tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'], display: ['Space Grotesk', 'sans-serif'] },
+          colors: {
+            'app': { 'bg': '#0d1f2d', 'card': '#132a3c' },
+            'brand': { 'DEFAULT': '#00b4a0', 'light': '#00d4b8', 'dark': '#008577' },
+            'income': '#00c853',
+            'expense': '#ff5252',
+            'warning': '#ffb300',
+            'purple': '#9c7cfa',
+            'orange': '#ff8a50'
+          }
+        }
+      }
+    }
+  </script>
+
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Configuração pendente (aparece só enquanto config.js estiver vazio) -->
+  <div id="setup-shell" class="auth-shell hidden">
+    <div class="auth-card">
+      <div class="auth-kicker">Controle Financeiro</div>
+      <h2 class="font-display auth-heading">Falta ligar o banco</h2>
+      <p class="auth-subtitle">Este aplicativo ainda não sabe em qual banco guardar os dados.</p>
+      <div class="access-summary-box">
+        <div>Abra o arquivo <strong>config.js</strong> e preencha <strong>supabaseUrl</strong> e <strong>supabaseKey</strong> com os dados do projeto no Supabase (Settings, API).</div>
+        <div class="mt-2">Depois publique de novo e abra esta página outra vez.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Entrar -->
+  <div id="auth-shell" class="auth-shell hidden">
+    <div class="auth-card">
+      <div class="auth-kicker">Controle Financeiro</div>
+      <div class="auth-brand">
+        <div class="auth-logo-wrap">
+          <img class="auth-logo" src="logo-192.png" alt="Logomarca do aplicativo">
+        </div>
+        <div>
+          <h2 class="font-display auth-heading">Entrar na casa</h2>
+          <p class="auth-subtitle" id="auth-subtitle">Use o e-mail e a senha da sua conta.</p>
+        </div>
+      </div>
+
+      <div class="auth-panel">
+        <div id="auth-offline-card" class="auth-offline-card">
+          <div class="auth-offline-title">Internet necessária</div>
+          <div class="auth-offline-copy">Conecte o aparelho à internet para entrar. Depois de entrar uma vez, o aplicativo abre mesmo sem internet.</div>
+        </div>
+
+        <form id="auth-form" class="space-y-4" onsubmit="submitAuth(event)">
+          <div>
+            <label class="text-xs text-[#6b8a99] font-medium mb-2 block">E-mail</label>
+            <input type="email" id="auth-email" class="input-styled" placeholder="seu@email.com" autocomplete="username" required>
+          </div>
+          <div>
+            <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Senha</label>
+            <input type="password" id="auth-password" class="input-styled" placeholder="Sua senha" autocomplete="current-password" required minlength="6">
+          </div>
+          <button type="submit" id="auth-submit-btn" class="w-full py-3.5 bg-brand text-white font-semibold rounded-xl hover:bg-brand-light transition-colors">Entrar</button>
+          <button type="button" id="auth-forgot-btn" class="w-full py-2 text-xs text-[#86a8b7] hover:text-white transition-colors" onclick="forgotPassword()">Esqueci minha senha</button>
+        </form>
+
+        <div id="auth-status" class="auth-status"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Área de avisos -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Sidebar -->
+  <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+  <nav class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">
+        <div class="sidebar-logo-icon"><img src="logo-192.png" alt="Logomarca"></div>
+        <div class="sidebar-logo-text">
+          <h1>Controle</h1>
+          <p id="sidebar-casa-name">Nossa casa</p>
+        </div>
+      </div>
+      <div class="sidebar-close" onclick="toggleSidebar()">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Principal</div>
+      <div class="sidebar-item active" data-page="dashboard" onclick="openPage('dashboard')">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"/></svg>
+        <span>Painel</span>
+      </div>
+      <div class="sidebar-item highlight" onclick="openModalTx(); toggleSidebar(false);">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        <span>Novo lançamento</span>
+      </div>
+      <div class="sidebar-item" data-page="transactions" onclick="openPage('transactions')">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+        <span>Transações</span>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Controle</div>
+      <div class="sidebar-item" data-page="control" onclick="openPage('control')">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <span>Controle de Pagamentos</span>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Planejamento</div>
+      <div class="sidebar-item" data-page="calendar" onclick="openPage('calendar')">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+        <span>Calendário</span>
+      </div>
+      <div class="sidebar-item" data-page="goals" onclick="openPage('goals')">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+        <span>Metas</span>
+      </div>
+      <div class="sidebar-item" data-page="reports" onclick="openPage('reports')">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+        <span>Relatórios</span>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Ferramentas</div>
+      <div class="sidebar-item" data-page="settings" onclick="openPage('settings')">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        <span>Configurações</span>
+      </div>
+    </div>
+
+    <div class="sidebar-profile" onclick="openPage('settings')">
+      <div class="sidebar-avatar" id="sidebar-avatar"><span id="sidebar-avatar-text">?</span></div>
+      <div style="flex:1; min-width:0">
+        <div class="sidebar-profile-name" id="sidebar-profile-name">Entrar</div>
+        <div class="sidebar-profile-type" id="sidebar-profile-type">Conta da casa</div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Aplicativo -->
+  <div id="app" class="min-h-screen pb-24 relative z-10 hidden">
+
+    <!-- PAINEL -->
+    <section id="page-dashboard" class="px-4 pt-4">
+      <div class="page-header">
+        <div class="flex items-start justify-between gap-3">
+          <div class="flex items-start gap-3 min-w-0 flex-1">
+            <button class="w-10 h-10 rounded-xl bg-[#132a3c] flex items-center justify-center text-[#6b8a99] hover:text-brand transition-colors" onclick="toggleSidebar()">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+            </button>
+            <div class="min-w-0">
+              <h1 class="font-display text-xl font-bold text-white leading-tight">Painel Financeiro</h1>
+              <p class="text-xs text-[#6b8a99] mt-1 flex items-center gap-2"><span id="live-indicator" class="live-dot off" title="Sem conexão em tempo real"></span><span id="live-text">Conectando...</span></p>
+            </div>
+          </div>
+          <div class="profile-header-avatar" id="header-avatar-dashboard"><span>?</span></div>
+        </div>
+      </div>
+
+      <div class="period-context-card mt-4">
+        <div class="min-w-0">
+          <span class="period-context-label">Período visualizado</span>
+          <strong class="period-context-value" id="dashboard-context-period">Mês atual</strong>
+          <span class="period-context-detail" id="dashboard-context-detail">Resultados do período selecionado</span>
+        </div>
+        <div class="period-context-actions">
+          <button type="button" class="period-context-action secondary" onclick="setDashboardCurrentMonth()">Mês atual</button>
+          <button type="button" class="period-context-action" data-dashboard-month-toggle onclick="openDashboardMonthPicker()">Selecionar mês</button>
+        </div>
+        <div id="dashboard-month-picker" class="period-context-popover hidden">
+          <p class="period-popover-title">Escolha o mês</p>
+          <div class="month-selector">
+            <div class="month-btn" onclick="changeDashboardMonth(-1)"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg></div>
+            <input type="month" id="dashboard-date-input" class="bg-transparent text-center text-white text-sm font-semibold w-full outline-none cursor-pointer" onchange="updateDashboardFromInput(this.value)">
+            <div class="month-btn" onclick="changeDashboardMonth(1)"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cards de Resumo -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+        <div class="card summary-mini" onclick="openPage('transactions')">
+          <div class="icon-box bg-brand/15">
+            <svg class="w-5 h-5 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          </div>
+          <div class="content">
+            <p class="label">SALDO DO PERÍODO</p>
+            <p class="value" id="dash-balance">R$ 0,00</p>
+          </div>
+        </div>
+        <div class="card summary-mini" onclick="openPage('transactions')">
+          <div class="icon-box bg-income/15">
+            <svg class="w-5 h-5 text-income" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+          </div>
+          <div class="content">
+            <p class="label">RECEITAS</p>
+            <p class="value text-income" id="dash-income">R$ 0,00</p>
+          </div>
+        </div>
+        <div class="card summary-mini" onclick="openPage('transactions')">
+          <div class="icon-box bg-expense/15">
+            <svg class="w-5 h-5 text-expense" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"/></svg>
+          </div>
+          <div class="content">
+            <p class="label">DESPESAS</p>
+            <p class="value text-expense" id="dash-expense">R$ 0,00</p>
+          </div>
+        </div>
+        <div class="card summary-mini" onclick="openPage('goals')">
+          <div class="icon-box bg-warning/15">
+            <svg class="w-5 h-5 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/></svg>
+          </div>
+          <div class="content">
+            <p class="label">ECONOMIA</p>
+            <p class="value text-warning" id="dash-savings">R$ 0,00</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-tabs mt-4" aria-label="Seções do painel">
+        <button type="button" class="section-tab-btn active" data-dashboard-tab="overview" onclick="switchDashboardTab('overview')">Visão</button>
+        <button type="button" class="section-tab-btn" data-dashboard-tab="analysis" onclick="switchDashboardTab('analysis')">Análise</button>
+        <button type="button" class="section-tab-btn" data-dashboard-tab="actions" onclick="switchDashboardTab('actions')">Ações</button>
+      </div>
+
+      <div data-dashboard-panel="overview">
+        <div class="card mt-4">
+          <div class="section-header">
+            <h2 class="section-title">Saúde Financeira</h2>
+            <span class="text-xs text-[#6b8a99]" id="health-period-label">Mês atual</span>
+          </div>
+          <div class="p-4">
+            <div class="health-grid">
+              <div class="health-card">
+                <div class="health-label">Saldo Real</div>
+                <div class="health-value" id="health-real-balance">R$ 0,00</div>
+                <div class="health-caption">Somente valores pagos e recebidos</div>
+              </div>
+              <div class="health-card">
+                <div class="health-label">Comprometido</div>
+                <div class="health-value text-orange" id="health-committed">R$ 0,00</div>
+                <div class="health-caption">Pendências e previsões do período</div>
+              </div>
+              <div class="health-card">
+                <div class="health-label">Livre</div>
+                <div class="health-value text-brand" id="health-free">R$ 0,00</div>
+                <div class="health-caption">Margem disponível para decidir</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="due-alerts" class="mt-4 hidden">
+          <div class="card p-4" style="border-left: 4px solid #ff5252;">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background: rgba(255, 82, 82, 0.15);">
+                <svg class="w-5 h-5 text-expense" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+              </div>
+              <div class="min-w-0 flex-1">
+                <p class="text-sm font-semibold text-white" id="due-alerts-title">Contas vencendo</p>
+                <p class="text-xs text-[#6b8a99]" id="due-alerts-detail"></p>
+              </div>
+              <button onclick="openPage('control'); filterControl('pending');" class="px-3 py-2 rounded-xl text-xs font-semibold" style="background: rgba(255, 82, 82, 0.15); color: #ff9b9b;">Ver</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="pending-alerts" class="mt-4 hidden">
+          <div class="card p-4" style="border-left: 4px solid #ff8a50;">
+            <div class="flex items-center gap-3 mb-3">
+              <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background: rgba(255, 138, 80, 0.15);">
+                <svg class="w-5 h-5 text-orange" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              </div>
+              <div>
+                <p class="text-sm font-semibold text-white">Pendências do Período</p>
+                <p class="text-xs text-[#6b8a99]" id="pending-period-label">Valores a receber e a pagar</p>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div class="p-3 rounded-xl" style="background: rgba(0, 200, 83, 0.1);">
+                <p class="text-xs text-[#6b8a99]">A Receber</p>
+                <p class="text-lg font-bold text-income" id="dash-pending-income">R$ 0,00</p>
+              </div>
+              <div class="p-3 rounded-xl" style="background: rgba(255, 82, 82, 0.1);">
+                <p class="text-xs text-[#6b8a99]">A Pagar</p>
+                <p class="text-lg font-bold text-expense" id="dash-pending-expense">R$ 0,00</p>
+              </div>
+            </div>
+            <button onclick="openPage('control')" class="w-full mt-3 py-2.5 rounded-xl text-sm font-semibold transition-colors" style="background: rgba(255, 138, 80, 0.15); color: #ff8a50;">Ver Controle de Pagamentos</button>
+          </div>
+        </div>
+      </div>
+
+      <div data-dashboard-panel="analysis" class="hidden">
+        <div class="card mt-4">
+          <div class="section-header">
+            <h2 class="section-title">Insights do Mês</h2>
+            <button class="text-xs font-semibold text-brand hover:text-brand-light transition-colors" onclick="openPage('reports')">Ver análise</button>
+          </div>
+          <div class="p-4">
+            <div id="dashboard-insights" class="insight-list"></div>
+          </div>
+        </div>
+        <div class="card mt-4">
+          <div class="section-header">
+            <h2 class="section-title">Gastos por Categoria</h2>
+          </div>
+          <div class="px-4 pb-4">
+            <div id="dash-categories-empty" class="py-8 text-center text-[#6b8a99]">
+              <p class="text-sm">Sem despesas registradas</p>
+            </div>
+            <div id="dash-categories" class="hidden"></div>
+          </div>
+        </div>
+      </div>
+
+      <div data-dashboard-panel="actions" class="hidden">
+        <div class="mt-4">
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
+            <h2 class="font-display text-base font-semibold text-white">Ações Rápidas</h2>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div class="quick-action-card" onclick="openModalTx()">
+              <div class="quick-action-icon bg-income/15">
+                <svg class="w-5 h-5 text-income" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+              </div>
+              <div class="quick-action-content">
+                <div class="quick-action-title">Novo lançamento</div>
+                <div class="quick-action-desc">Adicione receitas ou despesas</div>
+              </div>
+            </div>
+            <div class="quick-action-card" onclick="openPage('calendar')">
+              <div class="quick-action-icon bg-warning/15">
+                <svg class="w-5 h-5 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+              </div>
+              <div class="quick-action-content">
+                <div class="quick-action-title">Calendário</div>
+                <div class="quick-action-desc">Visualize compromissos</div>
+              </div>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 gap-3 mt-3">
+            <div class="quick-action-card" onclick="openPage('control')">
+              <div class="quick-action-icon bg-orange/15">
+                <svg class="w-5 h-5 text-orange" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              </div>
+              <div class="quick-action-content">
+                <div class="quick-action-title">Controle de Pagamentos</div>
+                <div class="quick-action-desc">Gerencie pendências</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="card mt-4 mb-4">
+          <div class="section-header">
+            <h2 class="section-title">Transações Recentes</h2>
+            <button class="text-xs font-semibold text-brand hover:text-brand-light transition-colors" onclick="openPage('transactions')">Ver todas</button>
+          </div>
+          <div class="px-4 pb-4">
+            <div id="dash-tx-empty" class="py-8 text-center text-[#6b8a99]">
+              <p class="text-sm">Sem movimentação</p>
+            </div>
+            <div id="dash-tx-list" class="hidden space-y-1"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CONTROLE DE PAGAMENTOS -->
+    <section id="page-control" class="hidden px-4 pt-4">
+      <div class="page-header">
+        <div class="flex items-start justify-between gap-3">
+          <div class="flex items-start gap-3 min-w-0 flex-1">
+            <button class="w-10 h-10 rounded-xl bg-[#132a3c] flex items-center justify-center text-[#6b8a99] hover:text-brand transition-colors" onclick="toggleSidebar()">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+            </button>
+            <div class="min-w-0">
+              <h1 class="font-display text-xl font-bold text-white leading-tight">Controle de Pagamentos</h1>
+              <p class="text-xs text-[#6b8a99] mt-1">Gerencie pendências</p>
+            </div>
+          </div>
+          <div class="profile-header-avatar" id="header-avatar-control"><span>?</span></div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+        <div class="card p-4">
+          <div class="flex items-center gap-3 mb-3">
+            <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background: rgba(0, 200, 83, 0.15);">
+              <svg class="w-5 h-5 text-income" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </div>
+            <div>
+              <p class="text-xs text-[#6b8a99]">RECEITAS</p>
+              <p class="text-lg font-bold text-income" id="control-pending-income">R$ 0,00</p>
+            </div>
+          </div>
+          <div class="flex justify-between text-xs">
+            <span class="text-[#6b8a99]">Recebido:</span>
+            <span class="text-income font-semibold" id="control-received">R$ 0,00</span>
+          </div>
+          <div class="flex justify-between text-xs mt-1">
+            <span class="text-[#6b8a99]">A receber:</span>
+            <span class="text-orange font-semibold" id="control-income-pending">R$ 0,00</span>
+          </div>
+        </div>
+        <div class="card p-4">
+          <div class="flex items-center gap-3 mb-3">
+            <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background: rgba(255, 82, 82, 0.15);">
+              <svg class="w-5 h-5 text-expense" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+            </div>
+            <div>
+              <p class="text-xs text-[#6b8a99]">DESPESAS</p>
+              <p class="text-lg font-bold text-expense" id="control-pending-expense">R$ 0,00</p>
+            </div>
+          </div>
+          <div class="flex justify-between text-xs">
+            <span class="text-[#6b8a99]">Pago:</span>
+            <span class="text-income font-semibold" id="control-paid">R$ 0,00</span>
+          </div>
+          <div class="flex justify-between text-xs mt-1">
+            <span class="text-[#6b8a99]">A pagar:</span>
+            <span class="text-orange font-semibold" id="control-expense-pending">R$ 0,00</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mt-4">
+        <div class="flex flex-wrap gap-2">
+          <button class="control-filter-btn active" data-filter="all" onclick="filterControl('all')">Todos</button>
+          <button class="control-filter-btn" data-filter="pending" onclick="filterControl('pending')">Pendentes</button>
+          <button class="control-filter-btn" data-filter="paid" onclick="filterControl('paid')">Concluídos</button>
+        </div>
+        <div class="relative">
+          <div class="dropdown text-xs" onclick="toggleDropdown('control-period')">
+            <span id="control-period-label">Este mês</span>
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </div>
+          <div id="dropdown-control-period" class="hidden absolute right-0 mt-2 bg-[#132a3c] border border-brand/15 rounded-xl shadow-xl z-50 min-w-[140px]">
+            <div class="py-1">
+              <button class="w-full px-4 py-2.5 text-left text-sm hover:bg-brand/10" onclick="setControlPeriod('month', 'Este mês')">Este mês</button>
+              <button class="w-full px-4 py-2.5 text-left text-sm hover:bg-brand/10" onclick="setControlPeriod('week', 'Esta semana')">Esta semana</button>
+              <button class="w-full px-4 py-2.5 text-left text-sm hover:bg-brand/10" onclick="setControlPeriod('year', 'Este ano')">Este ano</button>
+              <button class="w-full px-4 py-2.5 text-left text-sm hover:bg-brand/10" onclick="setControlPeriod('all', 'Todo período')">Todo período</button>
+              <button class="w-full px-4 py-2.5 text-left text-sm hover:bg-brand/10 text-brand font-semibold" onclick="setControlPeriod('custom', 'Mês específico')">Mês específico</button>
+            </div>
+          </div>
+          <div id="control-month-picker" class="filter-popover hidden">
+            <p class="period-popover-title">Escolha o mês</p>
+            <div class="month-selector">
+              <div class="month-btn" onclick="changeControlMonth(-1)"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg></div>
+              <input type="month" id="control-date-input" class="bg-transparent text-center text-white text-sm font-semibold w-full outline-none cursor-pointer" onchange="updateControlFromInput(this.value)">
+              <div class="month-btn" onclick="changeControlMonth(1)"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-tabs mt-4" aria-label="Listas do controle">
+        <button type="button" class="section-tab-btn active" data-control-tab="income" onclick="switchControlTab('income')">Receitas<span class="section-tab-count" id="control-income-tab-count">0</span></button>
+        <button type="button" class="section-tab-btn" data-control-tab="expense" onclick="switchControlTab('expense')">Despesas<span class="section-tab-count" id="control-expense-tab-count">0</span></button>
+      </div>
+
+      <div class="card mt-4" data-control-panel="income">
+        <div class="section-header">
+          <h2 class="section-title">Receitas</h2>
+          <span class="text-xs px-2 py-1 rounded-lg bg-income/15 text-income" id="control-income-count">0</span>
+        </div>
+        <div class="p-2">
+          <div id="control-income-empty" class="py-6 text-center text-[#6b8a99]"><p class="text-sm">Nenhuma receita</p></div>
+          <div id="control-income-list" class="hidden space-y-1 max-h-60 overflow-y-auto"></div>
+        </div>
+      </div>
+
+      <div class="card mt-4 mb-4 hidden" data-control-panel="expense">
+        <div class="section-header">
+          <h2 class="section-title">Despesas</h2>
+          <span class="text-xs px-2 py-1 rounded-lg bg-expense/15 text-expense" id="control-expense-count">0</span>
+        </div>
+        <div class="p-2">
+          <div id="control-expense-empty" class="py-6 text-center text-[#6b8a99]"><p class="text-sm">Nenhuma despesa</p></div>
+          <div id="control-expense-list" class="hidden space-y-1 max-h-60 overflow-y-auto"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TRANSAÇÕES -->
+    <section id="page-transactions" class="hidden px-4 pt-4">
+      <div class="page-header">
+        <div class="flex items-start justify-between gap-3">
+          <div class="flex items-start gap-3 min-w-0 flex-1">
+            <button class="w-10 h-10 rounded-xl bg-[#132a3c] flex items-center justify-center text-[#6b8a99] hover:text-brand transition-colors" onclick="toggleSidebar()">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+            </button>
+            <div class="min-w-0">
+              <h1 class="font-display text-xl font-bold text-white leading-tight">Transações</h1>
+            </div>
+          </div>
+          <div class="profile-header-avatar" id="header-avatar-transactions"><span>?</span></div>
+        </div>
+      </div>
+
+      <div class="period-context-card mt-4">
+        <div class="min-w-0">
+          <span class="period-context-label">Mês das transações</span>
+          <strong class="period-context-value" id="tx-context-period">Mês atual</strong>
+          <span class="period-context-detail" id="tx-context-detail">Lançamentos do período selecionado</span>
+        </div>
+        <div class="period-context-actions">
+          <button type="button" class="period-context-action secondary" onclick="setTxCurrentMonth()">Mês atual</button>
+          <button type="button" class="period-context-action" data-tx-month-toggle onclick="toggleTxMonthPicker()">Selecionar mês</button>
+        </div>
+        <div id="tx-month-picker" class="period-context-popover hidden">
+          <p class="period-popover-title">Escolha o mês</p>
+          <div class="month-selector">
+            <div class="month-btn" onclick="changeTxMonth(-1)"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg></div>
+            <input type="month" id="tx-date-input" class="bg-transparent text-center text-white text-sm font-semibold w-full outline-none cursor-pointer" onchange="updateTxFromInput(this.value)">
+            <div class="month-btn" onclick="changeTxMonth(1)"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-tabs mt-4" aria-label="Filtro de transações">
+        <button type="button" class="section-tab-btn active" data-tx-type-tab="all" onclick="setFilter('type', 'all')">Todas<span class="section-tab-count" id="tx-all-tab-count">0</span></button>
+        <button type="button" class="section-tab-btn" data-tx-type-tab="income" onclick="setFilter('type', 'income')">Receitas<span class="section-tab-count" id="tx-income-tab-count">0</span></button>
+        <button type="button" class="section-tab-btn" data-tx-type-tab="expense" onclick="setFilter('type', 'expense')">Despesas<span class="section-tab-count" id="tx-expense-tab-count">0</span></button>
+      </div>
+
+      <div class="card mt-4 mb-4">
+        <div class="p-4 flex justify-between items-center border-b border-brand/5">
+          <span class="text-sm text-[#6b8a99]" id="tx-count-label">0 transações</span>
+        </div>
+        <div class="p-2">
+          <div id="tx-list-empty" class="py-12 text-center text-[#6b8a99]">
+            <p class="text-sm">Nenhuma transação encontrada</p>
+          </div>
+          <div id="tx-list" class="hidden max-h-[55vh] overflow-y-auto"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CALENDÁRIO -->
+    <section id="page-calendar" class="hidden px-4 pt-4">
+      <div class="page-header">
+        <div class="flex items-start justify-between gap-3">
+          <div class="flex items-start gap-3 min-w-0 flex-1">
+            <button class="w-10 h-10 rounded-xl bg-[#132a3c] flex items-center justify-center text-[#6b8a99] hover:text-brand transition-colors" onclick="toggleSidebar()">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+            </button>
+            <div class="min-w-0">
+              <h1 class="font-display text-xl font-bold text-white leading-tight">Calendário Financeiro</h1>
+            </div>
+          </div>
+          <div class="profile-header-avatar" id="header-avatar-calendar"><span>?</span></div>
+        </div>
+      </div>
+
+      <div class="card mt-4">
+        <div class="calendar-toolbar">
+          <button class="calendar-nav-btn" onclick="calPrev()" aria-label="Mês anterior">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+          </button>
+          <div class="calendar-title-wrap">
+            <span class="calendar-title-eyebrow">Visualizando</span>
+            <h2 class="font-display calendar-month-title" id="cal-month-year">Janeiro 2024</h2>
+          </div>
+          <button class="calendar-nav-btn" onclick="calNext()" aria-label="Próximo mês">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          </button>
+        </div>
+        <div class="calendar-actions">
+          <button type="button" class="calendar-today-btn" onclick="calToday()">Hoje</button>
+        </div>
+        <div class="calendar-legend">
+          <span class="calendar-legend-item"><span class="calendar-dot bg-income"></span>Receita</span>
+          <span class="calendar-legend-item"><span class="calendar-dot bg-expense"></span>Despesa</span>
+        </div>
+        <div class="grid grid-cols-7 gap-1 px-4 pb-2">
+          <span class="text-center text-xs font-medium text-[#6b8a99] py-2">Dom</span>
+          <span class="text-center text-xs font-medium text-[#6b8a99] py-2">Seg</span>
+          <span class="text-center text-xs font-medium text-[#6b8a99] py-2">Ter</span>
+          <span class="text-center text-xs font-medium text-[#6b8a99] py-2">Qua</span>
+          <span class="text-center text-xs font-medium text-[#6b8a99] py-2">Qui</span>
+          <span class="text-center text-xs font-medium text-[#6b8a99] py-2">Sex</span>
+          <span class="text-center text-xs font-medium text-[#6b8a99] py-2">Sáb</span>
+        </div>
+        <div id="cal-grid" class="grid grid-cols-7 gap-1 px-4 pb-4"></div>
+      </div>
+
+      <div class="card mt-4 mb-4">
+        <div class="section-header">
+          <h2 class="section-title" id="cal-detail-title">Resumo do Mês</h2>
+          <button id="cal-clear-filter" class="hidden text-xs text-brand" onclick="clearCalendarFilter()">Ver mês todo</button>
+        </div>
+        <div class="calendar-summary-grid">
+          <div class="calendar-summary-card"><div class="calendar-summary-label">Receitas</div><span class="calendar-summary-value text-income" id="cal-income">R$ 0,00</span></div>
+          <div class="calendar-summary-card"><div class="calendar-summary-label">Despesas</div><span class="calendar-summary-value text-expense" id="cal-expense">R$ 0,00</span></div>
+          <div class="calendar-summary-card"><div class="calendar-summary-label">Saldo</div><span class="calendar-summary-value text-brand" id="cal-balance">R$ 0,00</span></div>
+          <div class="calendar-summary-card"><div class="calendar-summary-label">A pagar</div><span class="calendar-summary-value text-warning" id="cal-pending">R$ 0,00</span></div>
+        </div>
+        <div class="calendar-next-card">
+          <div class="min-w-0">
+            <div class="calendar-next-label">Próximo lançamento</div>
+            <div class="calendar-next-title" id="cal-next-title">Sem lançamentos</div>
+            <div class="calendar-next-detail" id="cal-next-detail">Nenhuma movimentação neste mês.</div>
+          </div>
+          <div class="calendar-next-amount" id="cal-next-amount">R$ 0,00</div>
+        </div>
+        <div id="cal-day-list" class="p-2 max-h-72 overflow-y-auto"></div>
+      </div>
+    </section>
+
+    <!-- METAS -->
+    <section id="page-goals" class="hidden px-4 pt-4">
+      <div class="page-header">
+        <div class="flex items-start justify-between gap-3">
+          <div class="flex items-start gap-3 min-w-0 flex-1">
+            <button class="w-10 h-10 rounded-xl bg-[#132a3c] flex items-center justify-center text-[#6b8a99] hover:text-brand transition-colors" onclick="toggleSidebar()">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+            </button>
+            <div class="min-w-0">
+              <h1 class="font-display text-xl font-bold text-white leading-tight">Metas Financeiras</h1>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button class="w-10 h-10 rounded-xl bg-brand/15 flex items-center justify-center text-brand hover:bg-brand/25 transition-colors" onclick="openModalGoal()">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+            </button>
+            <div class="profile-header-avatar" id="header-avatar-goals"><span>?</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="goals-summary-grid">
+        <div class="goal-stat-card"><span class="goal-stat-label">Guardado</span><strong class="goal-stat-value text-income" id="goals-total-current">R$ 0,00</strong></div>
+        <div class="goal-stat-card"><span class="goal-stat-label">Objetivo total</span><strong class="goal-stat-value text-brand" id="goals-total-target">R$ 0,00</strong></div>
+        <div class="goal-stat-card"><span class="goal-stat-label">Falta atingir</span><strong class="goal-stat-value text-warning" id="goals-total-remaining">R$ 0,00</strong></div>
+        <div class="goal-stat-card"><span class="goal-stat-label">Concluídas</span><strong class="goal-stat-value" id="goals-completed-count">0</strong></div>
+        <div class="goal-stat-card"><span class="goal-stat-label">Guardar por mês</span><strong class="goal-stat-value text-brand" id="goals-monthly-needed">R$ 0,00</strong></div>
+        <div class="goal-stat-card"><span class="goal-stat-label">Arquivadas</span><strong class="goal-stat-value" id="goals-archived-count">0</strong></div>
+      </div>
+
+      <div class="section-tabs mt-4" aria-label="Filtro de metas">
+        <button type="button" class="section-tab-btn active" data-goal-tab="all" onclick="switchGoalsTab('all')">Todas<span class="section-tab-count" id="goal-all-tab-count">0</span></button>
+        <button type="button" class="section-tab-btn" data-goal-tab="active" onclick="switchGoalsTab('active')">Em andamento<span class="section-tab-count" id="goal-active-tab-count">0</span></button>
+        <button type="button" class="section-tab-btn" data-goal-tab="completed" onclick="switchGoalsTab('completed')">Concluídas<span class="section-tab-count" id="goal-completed-tab-count">0</span></button>
+        <button type="button" class="section-tab-btn" data-goal-tab="archived" onclick="switchGoalsTab('archived')">Arquivadas<span class="section-tab-count" id="goal-archived-tab-count">0</span></button>
+      </div>
+
+      <div id="goals-empty" class="card mt-4 goal-empty-state">
+        <strong>Nenhuma meta cadastrada</strong>
+        <p class="text-sm">Crie uma meta para acompanhar quanto falta guardar.</p>
+        <button class="mt-4 px-6 py-2.5 bg-brand text-white font-semibold rounded-xl hover:bg-brand-light transition-colors" onclick="openModalGoal()">Criar Meta</button>
+      </div>
+      <div id="goals-list" class="goals-list hidden"></div>
+    </section>
+
+    <!-- RELATÓRIOS -->
+    <section id="page-reports" class="hidden px-4 pt-4">
+      <div class="page-header">
+        <div class="flex items-start justify-between gap-3">
+          <div class="flex items-start gap-3 min-w-0 flex-1">
+            <button class="w-10 h-10 rounded-xl bg-[#132a3c] flex items-center justify-center text-[#6b8a99] hover:text-brand transition-colors" onclick="toggleSidebar()">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+            </button>
+            <div class="min-w-0">
+              <h1 class="font-display text-xl font-bold text-white leading-tight">Relatórios</h1>
+            </div>
+          </div>
+          <div class="profile-header-avatar" id="header-avatar-reports"><span>?</span></div>
+        </div>
+      </div>
+
+      <div class="period-context-card mt-4">
+        <div class="min-w-0">
+          <span class="period-context-label">Mês do relatório</span>
+          <strong class="period-context-value" id="report-context-period">Mês atual</strong>
+          <span class="period-context-detail" id="report-context-detail">Indicadores do período selecionado</span>
+        </div>
+        <div class="period-context-actions">
+          <button type="button" class="period-context-action secondary" onclick="setReportCurrentMonth()">Mês atual</button>
+          <button type="button" class="period-context-action" data-report-month-toggle onclick="toggleReportMonthPicker()">Selecionar mês</button>
+        </div>
+        <div id="report-month-picker" class="period-context-popover hidden">
+          <p class="period-popover-title">Escolha o mês</p>
+          <div class="month-selector">
+            <div class="month-btn" onclick="changeReportMonth(-1)"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg></div>
+            <input type="month" id="report-date-input" class="bg-transparent text-center text-white text-sm font-semibold w-full outline-none cursor-pointer" onchange="updateReportFromInput(this.value)">
+            <div class="month-btn" onclick="changeReportMonth(1)"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-tabs mt-4" aria-label="Seções de relatórios">
+        <button type="button" class="section-tab-btn active" data-report-tab="summary" onclick="switchReportTab('summary')">Resumo</button>
+        <button type="button" class="section-tab-btn" data-report-tab="profit" onclick="switchReportTab('profit')">Rendimento</button>
+        <button type="button" class="section-tab-btn" data-report-tab="categories" onclick="switchReportTab('categories')">Categorias</button>
+        <button type="button" class="section-tab-btn" data-report-tab="budget" onclick="switchReportTab('budget')">Orçamento</button>
+      </div>
+
+      <div class="card mt-4 mb-4" data-report-panel="summary">
+        <div class="section-header"><h2 class="section-title">Resumo Geral</h2></div>
+        <div class="p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="text-center p-4 bg-[#0d1f2d] rounded-xl">
+            <div class="text-xs text-[#6b8a99] mb-1">Total Receitas</div>
+            <div class="text-lg font-bold text-income" id="report-total-income">R$ 0,00</div>
+          </div>
+          <div class="text-center p-4 bg-[#0d1f2d] rounded-xl">
+            <div class="text-xs text-[#6b8a99] mb-1">Total Despesas</div>
+            <div class="text-lg font-bold text-expense" id="report-total-expense">R$ 0,00</div>
+          </div>
+          <div class="text-center p-4 bg-[#0d1f2d] rounded-xl sm:col-span-2">
+            <div class="text-xs text-[#6b8a99] mb-1">Saldo Final</div>
+            <div class="text-2xl font-bold text-brand" id="report-balance">R$ 0,00</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mt-4 mb-4 hidden" data-report-panel="profit">
+        <div class="section-header">
+          <h2 class="section-title">Rendimento</h2>
+          <span class="text-xs text-[#6b8a99]">Sobra por mês</span>
+        </div>
+        <div class="p-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div class="text-center p-4 bg-[#0d1f2d] rounded-xl">
+            <div class="text-xs text-[#6b8a99] mb-1">Sobra do mês</div>
+            <div class="text-xl font-bold text-brand" id="report-month-profit">R$ 0,00</div>
+          </div>
+          <div class="text-center p-4 bg-[#0d1f2d] rounded-xl">
+            <div class="text-xs text-[#6b8a99] mb-1">Rendimento total</div>
+            <div class="text-xl font-bold text-income" id="report-total-profit">R$ 0,00</div>
+          </div>
+          <div class="text-center p-4 bg-[#0d1f2d] rounded-xl">
+            <div class="text-xs text-[#6b8a99] mb-1">Média mensal</div>
+            <div class="text-xl font-bold text-warning" id="report-average-profit">R$ 0,00</div>
+          </div>
+        </div>
+        <div class="px-4 pb-4">
+          <div id="report-monthly-profit-list"></div>
+        </div>
+      </div>
+
+      <div class="card mt-4 mb-4 hidden" data-report-panel="categories">
+        <div class="section-header"><h2 class="section-title">Despesas por Categoria</h2></div>
+        <div class="p-4" id="report-expenses-breakdown"></div>
+      </div>
+
+      <div class="card mt-4 mb-4 hidden" data-report-panel="categories">
+        <div class="section-header"><h2 class="section-title">Receitas por Fonte</h2></div>
+        <div class="p-4" id="report-income-breakdown"></div>
+      </div>
+
+      <div class="card mt-4 mb-4 hidden" data-report-panel="budget">
+        <div class="section-header"><h2 class="section-title">Uso do Orçamento</h2></div>
+        <div class="p-4" id="report-budget-breakdown"></div>
+      </div>
+    </section>
+
+    <!-- CONFIGURAÇÕES -->
+    <section id="page-settings" class="hidden px-4 pt-4">
+      <div class="page-header">
+        <div class="flex items-start justify-between gap-3">
+          <div class="flex items-start gap-3 min-w-0 flex-1">
+            <button class="w-10 h-10 rounded-xl bg-[#132a3c] flex items-center justify-center text-[#6b8a99] hover:text-brand transition-colors" onclick="toggleSidebar()">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+            </button>
+            <div class="min-w-0">
+              <h1 class="font-display text-xl font-bold text-white leading-tight">Configurações</h1>
+            </div>
+          </div>
+          <div class="profile-header-avatar" id="header-avatar-settings"><span>?</span></div>
+        </div>
+      </div>
+
+      <div class="settings-tabs mt-4" aria-label="Seções de configurações">
+        <button type="button" class="settings-tab-btn active" data-settings-tab="profile" onclick="switchSettingsTab('profile')">Perfil</button>
+        <button type="button" class="settings-tab-btn" data-settings-tab="casa" onclick="switchSettingsTab('casa')">Casa</button>
+        <button type="button" class="settings-tab-btn" data-settings-tab="accounts" onclick="switchSettingsTab('accounts')">Contas</button>
+        <button type="button" class="settings-tab-btn" data-settings-tab="avisos" onclick="switchSettingsTab('avisos')">Avisos</button>
+        <button type="button" class="settings-tab-btn" data-settings-tab="backup" onclick="switchSettingsTab('backup')">Backup</button>
+        <button type="button" class="settings-tab-btn" data-settings-tab="security" onclick="switchSettingsTab('security')">Senha</button>
+      </div>
+
+      <!-- Perfil -->
+      <div class="card mt-4" data-settings-panel="profile">
+        <div class="section-header"><h2 class="section-title">Perfil</h2></div>
+        <div class="p-6">
+          <div class="profile-photo-container">
+            <div class="profile-photo" id="profile-photo"><span id="profile-photo-initials">?</span></div>
+            <label class="profile-photo-edit" for="profile-photo-input">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+            </label>
+            <input type="file" id="profile-photo-input" accept="image/*" class="hidden" onchange="handleProfilePhoto(event)">
+          </div>
+          <div class="space-y-4 mt-4">
+            <div>
+              <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Como você aparece para a outra pessoa</label>
+              <input type="text" id="settings-name" class="input-styled" placeholder="Seu nome" oninput="updateProfilePreview()">
+            </div>
+            <div>
+              <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Sua cor</label>
+              <div id="settings-color-swatches" class="color-swatches"></div>
+            </div>
+            <div>
+              <label class="text-xs text-[#6b8a99] font-medium mb-2 block">E-mail da conta</label>
+              <input type="email" id="settings-email" class="input-styled" readonly>
+            </div>
+          </div>
+        </div>
+      </div>
+      <button onclick="saveProfile()" data-settings-panel="profile" class="w-full mt-4 mb-4 py-3.5 bg-brand text-white font-semibold rounded-xl hover:bg-brand-light transition-colors">Salvar perfil</button>
+
+      <!-- Casa -->
+      <div class="card mt-4 hidden" data-settings-panel="casa">
+        <div class="section-header">
+          <h2 class="section-title" id="casa-nome">Nossa casa</h2>
+          <span class="text-xs text-[#6b8a99]">Quem compartilha</span>
+        </div>
+        <div class="p-4 space-y-3">
+          <div id="casa-members" class="member-list"></div>
+          <div class="text-xs text-[#86a8b7] leading-5">Para adicionar outra pessoa, crie o usuário dela no Supabase (Authentication, Users, Add user). Ela entra na casa sozinha.</div>
+        </div>
+      </div>
+
+      <div class="card mt-4 hidden" data-settings-panel="casa">
+        <div class="section-header"><h2 class="section-title">Sincronização</h2></div>
+        <div class="p-4 space-y-3">
+          <div class="sync-status-chip">
+            <span id="settings-sync-dot" class="sync-status-dot warn"></span>
+            <span id="settings-sync-text">Aguardando</span>
+          </div>
+          <div id="settings-sync-detail" class="sync-status-detail"></div>
+          <div class="sync-last-card">
+            <span class="sync-last-label">Última leitura da nuvem</span>
+            <strong class="sync-last-value" id="settings-cloud-last-sync">Ainda não</strong>
+          </div>
+          <div class="sync-last-card">
+            <span class="sync-last-label">Alterações esperando internet</span>
+            <strong class="sync-last-value" id="settings-queue-count">0</strong>
+          </div>
+          <div class="space-y-2">
+            <button onclick="syncNow()" class="settings-action-btn">Sincronizar agora</button>
+            <button onclick="logout()" class="w-full p-3 rounded-xl bg-expense/10 hover:bg-expense/20 transition-colors text-expense font-semibold">Sair da conta</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Contas e orçamento -->
+      <div class="card mt-4 hidden" data-settings-panel="accounts">
+        <div class="section-header">
+          <h2 class="section-title">Contas e Carteiras</h2>
+          <span class="text-xs text-[#6b8a99]">Toque para editar</span>
+        </div>
+        <div class="p-4 space-y-3">
+          <div id="settings-accounts-list" class="account-summary-list"></div>
+          <button onclick="openModalAccount()" class="settings-action-btn">Adicionar conta</button>
+        </div>
+      </div>
+
+      <div class="card mt-4 hidden" data-settings-panel="accounts">
+        <div class="section-header">
+          <h2 class="section-title">Orçamento do Mês</h2>
+          <span class="text-xs text-[#6b8a99]">Limites por categoria</span>
+        </div>
+        <div class="p-4">
+          <div id="settings-budgets-list"></div>
+        </div>
+      </div>
+
+      <!-- Avisos -->
+      <div class="card mt-4 hidden" data-settings-panel="avisos">
+        <div class="section-header">
+          <h2 class="section-title">Avisos no aparelho</h2>
+          <span class="text-xs font-semibold" id="notif-status">Desligados</span>
+        </div>
+        <div class="p-4 space-y-3">
+          <div class="text-xs text-[#86a8b7] leading-5">Com os avisos ligados, quando a outra pessoa lançar ou pagar algo e o aplicativo estiver em segundo plano, aparece uma notificação neste aparelho. Com o aplicativo aberto, aparece um aviso na tela.</div>
+          <button id="notif-enable-btn" onclick="enableDeviceNotifications()" class="settings-action-btn">Ligar avisos neste aparelho</button>
+          <div class="recurring-toggle" id="notif-toggle-outros" onclick="toggleNotifPref('outros')">
+            <div class="recurring-toggle-content">
+              <div>
+                <div class="recurring-toggle-text">Avisar o que a outra pessoa fizer</div>
+                <div class="recurring-toggle-hint">Lançamentos, pagamentos e metas</div>
+              </div>
+            </div>
+            <div class="recurring-switch"></div>
+          </div>
+          <div class="recurring-toggle" id="notif-toggle-vencimentos" onclick="toggleNotifPref('vencimentos')">
+            <div class="recurring-toggle-content">
+              <div>
+                <div class="recurring-toggle-text">Lembrar contas vencendo</div>
+                <div class="recurring-toggle-hint">Ao abrir o aplicativo, uma vez por dia</div>
+              </div>
+            </div>
+            <div class="recurring-switch"></div>
+          </div>
+          <div class="text-xs text-[#6b8a99] leading-5">No iPhone, os avisos só funcionam com o aplicativo instalado na tela inicial (Compartilhar, Adicionar à Tela de Início).</div>
+        </div>
+      </div>
+
+      <!-- Backup -->
+      <div class="card mt-4 hidden" data-settings-panel="backup">
+        <div class="section-header">
+          <h2 class="section-title">Segurança e Backup</h2>
+          <span id="settings-data-health-status" class="text-xs text-brand font-semibold">Protegido</span>
+        </div>
+        <div class="p-4 space-y-3">
+          <div id="settings-data-health" class="data-health-grid"></div>
+          <div class="text-xs text-[#86a8b7] leading-5">Os dados ficam na nuvem da casa e uma cópia fica neste aparelho para abrir rápido e funcionar sem internet.</div>
+        </div>
+      </div>
+
+      <div id="legacy-import-card" class="card mt-4 hidden" data-settings-panel="backup">
+        <div class="section-header"><h2 class="section-title">Dados da versão antiga</h2></div>
+        <div class="p-4 space-y-3">
+          <div class="admin-gate-card" id="legacy-import-text">Encontrei dados da versão antiga guardados neste aparelho.</div>
+          <button onclick="offerLegacyImport(true)" class="settings-action-btn">Importar para a casa</button>
+        </div>
+      </div>
+
+      <div class="card mt-4 hidden" data-settings-panel="backup">
+        <div class="section-header"><h2 class="section-title">Dados</h2></div>
+        <div class="p-4 space-y-2">
+          <button onclick="exportData()" class="w-full flex items-center justify-between gap-3 p-3 rounded-xl bg-[#0d1f2d] hover:bg-[#1a3649] transition-colors">
+            <div class="flex items-center gap-3 min-w-0">
+              <svg class="w-5 h-5 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+              <span class="text-sm text-[#e8f4f8]">Exportar cópia de segurança</span>
+            </div>
+          </button>
+          <button onclick="document.getElementById('backup-import-input').click()" class="w-full flex items-center justify-between gap-3 p-3 rounded-xl bg-[#0d1f2d] hover:bg-[#1a3649] transition-colors">
+            <div class="flex items-center gap-3 min-w-0">
+              <svg class="w-5 h-5 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9M4 9H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2M15 15h5"/></svg>
+              <span class="text-sm text-[#e8f4f8]">Importar cópia de segurança (.json)</span>
+            </div>
+          </button>
+          <input type="file" id="backup-import-input" accept=".json,application/json" class="hidden" onchange="importData(event)">
+        </div>
+      </div>
+
+      <!-- Senha -->
+      <div class="card mt-4 hidden" data-settings-panel="security">
+        <div class="section-header"><h2 class="section-title">Trocar senha</h2></div>
+        <div class="p-4 space-y-3">
+          <div class="space-y-3">
+            <input type="password" id="settings-new-password" class="input-styled" placeholder="Nova senha (mínimo 6)" minlength="6" autocomplete="new-password">
+            <input type="password" id="settings-confirm-password" class="input-styled" placeholder="Confirmar nova senha" minlength="6" autocomplete="new-password">
+          </div>
+          <button id="settings-password-submit" onclick="changeCurrentPassword(null, 'settings')" class="settings-action-btn">Atualizar senha</button>
+          <div class="text-xs text-[#6b8a99] leading-5">Versão do aplicativo: <span id="app-version">-</span></div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Bottom Nav -->
+  <nav class="bottom-nav hidden" id="bottom-nav">
+    <div class="bottom-nav-inner">
+      <div class="nav-item active" data-page="dashboard" onclick="openPage('dashboard')">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"/></svg>
+        <span>Painel</span>
+      </div>
+      <div class="nav-item" data-page="control" onclick="openPage('control')">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <span>Controle</span>
+      </div>
+      <div class="nav-item" data-page="transactions" onclick="openPage('transactions')">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+        <span>Transações</span>
+      </div>
+      <div class="nav-item" data-page="calendar" onclick="openPage('calendar')">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+        <span>Calendário</span>
+      </div>
+      <div class="nav-item" data-page="reports" onclick="openPage('reports')">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+        <span>Relatórios</span>
+      </div>
+    </div>
+  </nav>
+
+  <!-- FAB -->
+  <button class="fab hidden" id="fab" onclick="openModalTx()" aria-label="Novo lançamento">
+    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/></svg>
+  </button>
+
+  <!-- Modal: nova senha (link de recuperação) -->
+  <div id="modal-password-change" class="modal-overlay password-modal">
+    <div class="modal-content">
+      <div class="text-center mb-6">
+        <div class="w-14 h-14 mx-auto mb-4 rounded-2xl flex items-center justify-center" style="background: rgba(0, 180, 160, 0.15);">
+          <svg class="w-7 h-7 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 11c1.105 0 2-.895 2-2V7a2 2 0 10-4 0v2c0 1.105.895 2 2 2zm-6 2h12v8H6v-8z"/></svg>
+        </div>
+        <h2 class="font-display text-lg font-bold text-white">Crie uma nova senha</h2>
+        <p class="text-sm text-[#86a8b7] mt-2 leading-6">Você abriu o link de recuperação. Escolha a nova senha para continuar.</p>
+      </div>
+      <form onsubmit="changeCurrentPassword(event, 'forced')" class="space-y-4">
+        <div>
+          <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Nova senha</label>
+          <input type="password" id="force-new-password" class="input-styled" placeholder="Mínimo 6 caracteres" minlength="6" required autocomplete="new-password">
+        </div>
+        <div>
+          <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Confirmar nova senha</label>
+          <input type="password" id="force-confirm-password" class="input-styled" placeholder="Digite novamente" minlength="6" required autocomplete="new-password">
+        </div>
+        <div id="force-password-status" class="auth-status"></div>
+        <button type="submit" id="force-password-submit" class="w-full py-3.5 bg-brand text-white font-semibold rounded-xl hover:bg-brand-light transition-colors">Salvar nova senha</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Transação -->
+  <div id="modal-tx" class="modal-overlay" onclick="if(event.target === this) closeModalTx()">
+    <div class="modal-content">
+      <div class="modal-title-row">
+        <h2 class="font-display text-lg font-bold text-white" id="modal-tx-title">Nova Transação</h2>
+        <button type="button" onclick="closeModalTx()" class="w-8 h-8 rounded-lg bg-[#0d1f2d] flex items-center justify-center text-[#6b8a99] hover:text-white transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <form id="form-tx" onsubmit="saveTransaction(event)">
+        <input type="hidden" id="tx-id">
+        <div class="type-toggle mb-5">
+          <button type="button" id="btn-expense" class="type-btn expense active" onclick="setTxType('expense')">Despesa</button>
+          <button type="button" id="btn-income" class="type-btn income" onclick="setTxType('income')">Receita</button>
+        </div>
+        <div class="space-y-4">
+          <div>
+            <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Valor</label>
+            <div class="relative">
+              <span class="absolute left-4 top-1/2 -translate-y-1/2 text-[#6b8a99] font-medium">R$</span>
+              <input type="text" inputmode="numeric" id="tx-amount" class="input-styled pl-12 text-xl font-display font-bold" placeholder="0,00" required oninput="formatCurrency(this)">
+            </div>
+          </div>
+          <div>
+            <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Descrição *</label>
+            <input type="text" id="tx-desc" class="input-styled" placeholder="Ex: Supermercado" required>
+          </div>
+          <div class="form-grid">
+            <div>
+              <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Data</label>
+              <input type="date" id="tx-date" class="input-styled">
+            </div>
+            <div>
+              <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Categoria *</label>
+              <select id="tx-category" class="input-styled" required></select>
+            </div>
+          </div>
+          <div>
+            <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Conta / Carteira</label>
+            <select id="tx-account" class="input-styled" required></select>
+          </div>
+          <div>
+            <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Status</label>
+            <div class="status-toggle">
+              <button type="button" id="btn-status-pending" class="status-toggle-btn pending active" onclick="setTxStatus('pending')">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                <span id="status-pending-label">A Pagar</span>
+              </button>
+              <button type="button" id="btn-status-paid" class="status-toggle-btn paid" onclick="setTxStatus('paid')">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                <span id="status-paid-label">Pago</span>
+              </button>
+            </div>
+          </div>
+          <div>
+            <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Método de Pagamento</label>
+            <div class="payment-methods">
+              <div class="payment-method active" data-method="credit" onclick="selectPaymentMethod('credit')"><span>Crédito</span></div>
+              <div class="payment-method" data-method="debit" onclick="selectPaymentMethod('debit')"><span>Débito</span></div>
+              <div class="payment-method" data-method="cash" onclick="selectPaymentMethod('cash')"><span>Dinheiro</span></div>
+              <div class="payment-method" data-method="pix" onclick="selectPaymentMethod('pix')"><span>PIX</span></div>
+            </div>
+          </div>
+          <div class="recurring-toggle" id="recurring-toggle" onclick="toggleRecurring()">
+            <div class="recurring-toggle-content">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+              <div>
+                <div class="recurring-toggle-text">Transação Recorrente</div>
+                <div class="recurring-toggle-hint" id="recurring-hint">Repete todo mês pelos próximos 12 meses</div>
+              </div>
+            </div>
+            <div class="recurring-switch"></div>
+          </div>
+          <button type="submit" class="w-full py-3.5 bg-brand text-white font-semibold rounded-xl hover:bg-brand-light transition-colors mt-2">Salvar Transação</button>
+          <button type="button" id="delete-tx-btn" class="delete-btn-modal hidden" onclick="showDeleteOptions()">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+            Excluir Transação
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: excluir recorrente -->
+  <div id="modal-delete-recurring" class="modal-overlay" onclick="if(event.target === this) closeDeleteModal()">
+    <div class="modal-content">
+      <div class="text-center mb-6">
+        <div class="w-16 h-16 mx-auto mb-4 rounded-2xl flex items-center justify-center" style="background: rgba(255, 82, 82, 0.15);">
+          <svg class="w-8 h-8 text-expense" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+        </div>
+        <h2 class="font-display text-lg font-bold text-white mb-2">Transação Recorrente</h2>
+        <p class="text-sm text-[#6b8a99]">O que deseja fazer?</p>
+      </div>
+      <div class="space-y-3">
+        <button class="delete-option-btn single" onclick="deleteTransaction('single')">Excluir apenas esta</button>
+        <button class="delete-option-btn all" onclick="deleteTransaction('all')">Excluir toda a recorrência</button>
+        <button class="delete-option-btn cancel" onclick="closeDeleteModal()">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: confirmação genérica -->
+  <div id="modal-confirm" class="modal-overlay" style="z-index: 1260;">
+    <div class="modal-content">
+      <div class="text-center mb-6">
+        <h2 class="font-display text-lg font-bold text-white mb-2" id="confirm-title">Confirmar</h2>
+        <p class="text-sm text-[#9fc2ce] leading-6" id="confirm-message"></p>
+      </div>
+      <div class="space-y-3">
+        <button type="button" class="delete-option-btn single" id="confirm-ok">Confirmar</button>
+        <button type="button" class="delete-option-btn cancel" id="confirm-cancel">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Meta -->
+  <div id="modal-goal" class="modal-overlay" onclick="if(event.target === this) closeModalGoal()">
+    <div class="modal-content">
+      <div class="modal-title-row">
+        <h2 class="font-display text-lg font-bold text-white" id="modal-goal-title">Nova Meta</h2>
+        <button type="button" onclick="closeModalGoal()" class="w-8 h-8 rounded-lg bg-[#0d1f2d] flex items-center justify-center text-[#6b8a99] hover:text-white transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <form onsubmit="saveGoal(event)">
+        <input type="hidden" id="goal-id">
+        <div class="space-y-4">
+          <div>
+            <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Título</label>
+            <input type="text" id="goal-title" class="input-styled" placeholder="Ex: Viagem" required>
+          </div>
+          <div class="form-grid">
+            <div>
+              <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Tipo da Meta</label>
+              <select id="goal-category" class="input-styled">
+                <option value="reserve">Reserva</option>
+                <option value="travel">Viagem</option>
+                <option value="purchase">Compra</option>
+                <option value="debt">Dívida</option>
+                <option value="emergency">Emergência</option>
+                <option value="other">Outro</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Prazo</label>
+              <input type="month" id="goal-deadline" class="input-styled">
+            </div>
+          </div>
+          <div class="form-grid">
+            <div>
+              <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Valor da Meta</label>
+              <div class="relative">
+                <span class="absolute left-4 top-1/2 -translate-y-1/2 text-[#6b8a99] font-medium text-sm">R$</span>
+                <input type="text" inputmode="numeric" id="goal-target" class="input-styled pl-12" placeholder="0,00" required oninput="formatCurrency(this)">
+              </div>
+            </div>
+            <div>
+              <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Valor Atual</label>
+              <div class="relative">
+                <span class="absolute left-4 top-1/2 -translate-y-1/2 text-[#6b8a99] font-medium text-sm">R$</span>
+                <input type="text" inputmode="numeric" id="goal-current" class="input-styled pl-12" placeholder="0,00" oninput="formatCurrency(this)">
+              </div>
+            </div>
+          </div>
+          <button type="submit" class="w-full py-3.5 bg-brand text-white font-semibold rounded-xl hover:bg-brand-light transition-colors mt-2">Salvar Meta</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Adicionar valor na meta -->
+  <div id="modal-goal-add" class="modal-overlay" onclick="if(event.target === this) closeModalGoalAdd()">
+    <div class="modal-content">
+      <div class="modal-title-row">
+        <h2 class="font-display text-lg font-bold text-white">Adicionar Valor</h2>
+        <button type="button" onclick="closeModalGoalAdd()" class="w-8 h-8 rounded-lg bg-[#0d1f2d] flex items-center justify-center text-[#6b8a99] hover:text-white transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <form onsubmit="addToGoal(event)">
+        <input type="hidden" id="goal-add-id">
+        <div class="space-y-4">
+          <div class="p-4 bg-[#0d1f2d] rounded-xl">
+            <p class="text-xs text-[#6b8a99] mb-1">Meta</p>
+            <p class="text-lg font-bold text-white" id="goal-add-name">Viagem</p>
+            <div class="flex justify-between mt-2 text-xs">
+              <span class="text-[#6b8a99]">Atual: <span class="text-white font-semibold" id="goal-add-current">R$ 0,00</span></span>
+              <span class="text-[#6b8a99]">Meta: <span class="text-brand font-semibold" id="goal-add-target">R$ 0,00</span></span>
+            </div>
+          </div>
+          <div>
+            <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Valor a Adicionar</label>
+            <div class="relative">
+              <span class="absolute left-4 top-1/2 -translate-y-1/2 text-[#6b8a99] font-medium text-sm">R$</span>
+              <input type="text" inputmode="numeric" id="goal-add-amount" class="input-styled pl-12" placeholder="0,00" required oninput="formatCurrency(this)">
+            </div>
+          </div>
+          <div>
+            <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Data do Aporte</label>
+            <input type="date" id="goal-add-date" class="input-styled">
+          </div>
+          <button type="submit" class="w-full py-3.5 bg-brand text-white font-semibold rounded-xl hover:bg-brand-light transition-colors mt-2">Adicionar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Conta / carteira -->
+  <div id="modal-account" class="modal-overlay" onclick="if(event.target === this) closeModalAccount()">
+    <div class="modal-content">
+      <div class="modal-title-row">
+        <h2 class="font-display text-lg font-bold text-white" id="modal-account-title">Nova conta</h2>
+        <button type="button" onclick="closeModalAccount()" class="w-8 h-8 rounded-lg bg-[#0d1f2d] flex items-center justify-center text-[#6b8a99] hover:text-white transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <form onsubmit="saveAccount(event)">
+        <input type="hidden" id="account-id">
+        <div class="space-y-4">
+          <div>
+            <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Nome</label>
+            <input type="text" id="account-name" class="input-styled" placeholder="Ex: Nubank" required>
+          </div>
+          <div>
+            <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Tipo</label>
+            <select id="account-type" class="input-styled">
+              <option>Conta corrente</option>
+              <option>Dinheiro</option>
+              <option>Cartão de crédito</option>
+              <option>Investimentos</option>
+              <option>Poupança</option>
+              <option>Outro</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Cor</label>
+            <div id="account-color-swatches" class="color-swatches"></div>
+            <input type="hidden" id="account-color" value="#00b4a0">
+          </div>
+          <button type="submit" class="w-full py-3.5 bg-brand text-white font-semibold rounded-xl hover:bg-brand-light transition-colors mt-2">Salvar conta</button>
+          <button type="button" id="delete-account-btn" class="delete-btn-modal hidden" onclick="deleteAccount()">Excluir conta</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
