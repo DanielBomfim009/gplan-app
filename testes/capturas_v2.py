@@ -71,7 +71,7 @@ def main():
         page.fill("#auth-email", "daniel@teste.com")
         page.fill("#auth-password", "123456")
         page.click("#auth-submit-btn")
-        page.wait_for_function("document.getElementById('live-text').textContent.startsWith('Ao vivo')", timeout=10000)
+        page.wait_for_function("document.getElementById('live-indicator').classList.contains('ok')", timeout=10000)
 
         lancar(page, "520000", "Salário", tipo="income", status="paid", dia=f"{mes}-05")
         lancar(page, "180000", "Aluguel", categoria="home", status="paid", dia=f"{mes}-05")

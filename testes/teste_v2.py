@@ -77,7 +77,7 @@ def entrar(page, email, senha="123456"):
     page.fill("#auth-password", senha)
     page.click("#auth-submit-btn")
     page.wait_for_selector("#app:not(.hidden)", timeout=10000)
-    page.wait_for_function("document.getElementById('live-text').textContent.startsWith('Ao vivo')", timeout=10000)
+    page.wait_for_function("document.getElementById('live-indicator').classList.contains('ok')", timeout=10000)
 
 
 def abrir_modal_tx(page):
@@ -131,7 +131,7 @@ def main():
         page.goto(BASE)
         page.evaluate("localStorage.clear(); sessionStorage.clear();")
         entrar(page, "daniel@teste.com")
-        checar("Maria" in txt(page, "#live-text"), "indicador mostra 'Ao vivo com Maria'")
+        checar(page.evaluate("State.members.length") == 2 and page.evaluate("document.getElementById('live-indicator').classList.contains('ok')"), "tempo real ligado e 2 membros carregados")
         checar(txt(page, "#sidebar-casa-name").strip() == "Casa Teste", "nome da casa na barra lateral")
         page.click("#bottom-nav .nav-item[data-page='dashboard']")
 

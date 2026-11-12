@@ -14,8 +14,12 @@
   <link rel="apple-touch-icon" href="logo-192.png">
   <link rel="icon" href="logo-192.png" type="image/png">
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0/dist/umd/supabase.js"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0/dist/umd/supabase.js"></script>
+  <!-- A fonte chega sem travar a primeira pintura; até lá vale a fonte do aparelho. -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'">
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap"></noscript>
 
   <link rel="stylesheet" href="styles.css">
   <!-- CSS gerado localmente (pasta tailwind/ do repositório), por último para as classes utilitárias
@@ -1269,7 +1273,7 @@
     </div>
   </div>
 
-  <script src="config.js"></script>
-  <script src="app.js"></script>
+  <script defer src="config.js"></script>
+  <script defer src="app.js"></script>
 </body>
 </html>

@@ -10,6 +10,17 @@
     { id: 'u1', email: 'daniel@teste.com', password: '123456', nome: 'Daniel', cor: '#00b4a0' },
     { id: 'u2', email: 'maria@teste.com', password: '123456', nome: 'Maria', cor: '#ffb300' }
   ];
+  // Colunas reais de cada tabela (iguais ao supabase_v2.sql). Coluna
+  // desconhecida em filtro, ordenação ou gravação dá erro como no PostgREST.
+  const SCHEMA = {
+    casas: ['id', 'nome', 'created_at'],
+    membros: ['user_id', 'casa_id', 'nome', 'cor', 'foto', 'created_at', 'updated_at'],
+    lancamentos: ['id', 'casa_id', 'type', 'amount', 'description', 'date', 'category', 'account_id', 'payment_method', 'status', 'recurring', 'recurring_id', 'created_by', 'updated_by', 'created_at', 'updated_at'],
+    metas: ['id', 'casa_id', 'title', 'category', 'deadline', 'target', 'current', 'archived', 'contributions', 'created_by', 'updated_by', 'created_at', 'updated_at'],
+    contas: ['id', 'casa_id', 'name', 'type', 'color', 'position', 'created_by', 'updated_by', 'created_at', 'updated_at'],
+    orcamentos: ['casa_id', 'category', 'amount', 'created_by', 'updated_by', 'created_at', 'updated_at'],
+    user_states: ['user_id', 'app_state', 'updated_at']
+  };
   const DB_KEY = 'mock-db';
   const SESSION_KEY = 'mock-session';
   const LATENCY_MS = 15;
@@ -117,10 +128,11 @@
       this._limit = null;
     }
     select() { if (this.op === 'select') return this; return this; }
-    eq(k, v) { this.filters.push(r => String(r[k]) === String(v)); return this; }
-    in(k, arr) { const s = new Set((arr || []).map(String)); this.filters.push(r => s.has(String(r[k]))); return this; }
+    _col(k) { const cols = SCHEMA[this.table]; if (cols && !cols.includes(k)) this._colError = this._colError || { message: `column ${this.table}.${k} does not exist`, code: '42703', status: 400 }; return k; }
+    eq(k, v) { this._col(k); this.filters.push(r => String(r[k]) === String(v)); return this; }
+    in(k, arr) { this._col(k); const s = new Set((arr || []).map(String)); this.filters.push(r => s.has(String(r[k]))); return this; }
     match(obj) { Object.entries(obj || {}).forEach(([k, v]) => this.eq(k, v)); return this; }
-    order(k, opts = {}) { this._order = { k, ascending: opts.ascending !== false }; return this; }
+    order(k, opts = {}) { this._col(k); this._order = { k, ascending: opts.ascending !== false }; return this; }
     range(a, b) { this._range = [a, b]; return this; }
     limit(n) { this._limit = n; return this; }
     maybeSingle() { this._single = true; return this; }
@@ -137,6 +149,13 @@
       const user = currentUser();
       if (!user) return { data: null, error: { message: 'JWT expired', status: 401 } };
       if (!db[this.table]) return { data: null, error: { message: `relation "${this.table}" does not exist`, status: 404 } };
+      if (this._colError) return { data: null, error: this._colError };
+      const cols = SCHEMA[this.table];
+      if (cols && (this.op === 'upsert' || this.op === 'update')) {
+        const enviados = this.op === 'upsert' ? this.rows.flatMap(r => Object.keys(r)) : Object.keys(this.patch);
+        const estranha = enviados.find(k => !cols.includes(k));
+        if (estranha) return { data: null, error: { message: `Could not find the '${estranha}' column of '${this.table}' in the schema cache`, code: 'PGRST204', status: 400 } };
+      }
       const casa = minhaCasa(db);
       const matches = (r) => visible(db, this.table, r) && this.filters.every(f => f(r));
 

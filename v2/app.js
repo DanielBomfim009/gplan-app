@@ -47,6 +47,17 @@ const DEFAULT_ACCOUNTS = [
   { id: 'reserve', name: 'Reserva', type: 'Investimentos', color: '#9c7cfa', position: 2 }
 ];
 
+// Abre a conexão com o banco mais cedo (poupa o aperto de mão TLS do primeiro pedido).
+if (SUPABASE_URL) {
+  try {
+    const link = document.createElement('link');
+    link.rel = 'preconnect';
+    link.href = new URL(SUPABASE_URL).origin;
+    link.crossOrigin = 'anonymous';
+    document.head.appendChild(link);
+  } catch (_) { /* endereço inválido: a tela de configuração avisa */ }
+}
+
 const emptyBudgets = () => ({ credit_card: 0, home: 0, food: 0, transport: 0, health: 0, education: 0, leisure: 0, other: 0 });
 
 // ---------------------------------------------------------------------
@@ -81,6 +92,8 @@ let casaId = null;
 let channel = null;
 let realtimeStatus = 'off';
 let realtimeRetryTimer = null;
+let skipNextRealtimeReload = false; // logo após carregar tudo, a 1ª conexão não relê
+let cacheTimer = null;
 let queue = [];
 let flushing = false;
 let bootToken = 0;
@@ -314,6 +327,20 @@ function authorSuffix(tx) {
 // ---------------------------------------------------------------------
 function saveCache() {
   if (!me) return;
+  clearTimeout(cacheTimer);
+  cacheTimer = setTimeout(writeCacheNow, 300);
+}
+
+function flushCacheNow() {
+  if (!cacheTimer) return;
+  clearTimeout(cacheTimer);
+  cacheTimer = null;
+  writeCacheNow();
+}
+
+function writeCacheNow() {
+  cacheTimer = null;
+  if (!me) return;
   try {
     cacheSavedAt = new Date().toISOString();
     localStorage.setItem(lsCacheKey(me.id), JSON.stringify({
@@ -494,7 +521,7 @@ function updateLiveIndicator() {
   }
   if (realtimeStatus === 'SUBSCRIBED') {
     dot.classList.add('ok');
-    text.textContent = State.members.length > 1 ? `Ao vivo com ${otherMembersLabel()}` : 'Ao vivo';
+    text.textContent = 'Visão geral da casa';
     dot.title = 'Tempo real ligado';
     return;
   }
@@ -576,7 +603,10 @@ function openLoginScreen(statusText = '') {
   showShell('auth');
   updateAuthConnectivityState();
   if (statusText) safeSetText('auth-status', statusText);
-  setTimeout(() => document.getElementById('auth-email')?.focus(), 80);
+  const emailInput = document.getElementById('auth-email');
+  const last = getLastUser();
+  if (emailInput && !emailInput.value && last?.email) emailInput.value = last.email;
+  setTimeout(() => document.getElementById(emailInput?.value ? 'auth-password' : 'auth-email')?.focus(), 80);
 }
 
 function friendlyAuthError(error) {
@@ -640,13 +670,21 @@ async function logout() {
   const c = ensureClient();
   teardownRealtime();
   try { if (c) await withTimeout(c.auth.signOut(), 10000, 'Tempo esgotado ao sair.'); } catch (error) { console.warn('Falha ao encerrar sessão:', error); }
-  try { if (me) { localStorage.removeItem(lsCacheKey(me.id)); localStorage.removeItem(lsQueueKey(me.id)); } localStorage.removeItem(LS_LAST_USER); } catch (_) { /* ok */ }
+  clearTimeout(cacheTimer);
+  cacheTimer = null;
+  try {
+    if (me) { localStorage.removeItem(lsCacheKey(me.id)); localStorage.removeItem(lsQueueKey(me.id)); }
+    // Guarda só o e-mail, para já vir preenchido na próxima entrada.
+    localStorage.setItem(LS_LAST_USER, JSON.stringify({ id: '', email: me?.email || '' }));
+  } catch (_) { /* ok */ }
   resetSessionState();
   openLoginScreen('Sessão encerrada. Entre novamente para ver os dados da casa.');
 }
 
 function resetSessionState() {
   bootToken++;
+  clearTimeout(cacheTimer);
+  cacheTimer = null;
   me = null;
   myMember = null;
   casaId = null;
@@ -720,16 +758,20 @@ function enterOfflineModeIfPossible() {
 // ---------------------------------------------------------------------
 // Carregar a casa (cópia local primeiro, nuvem em seguida)
 // ---------------------------------------------------------------------
+// Coluna de ordenação de cada tabela ("orcamentos" não tem coluna id).
+const ORDER_COLUMN = { orcamentos: 'category' };
+
 async function fetchAll(table) {
   const rows = [];
   let from = 0;
+  const orderBy = ORDER_COLUMN[table] || 'id';
   for (;;) {
     const { data, error } = await withTimeout(
-      client.from(table).select('*').eq('casa_id', casaId).order('id', { ascending: true }).range(from, from + PAGE_SIZE - 1),
+      client.from(table).select('*').eq('casa_id', casaId).order(orderBy, { ascending: true }).range(from, from + PAGE_SIZE - 1),
       30000,
       `Tempo esgotado ao ler ${table}.`
     );
-    if (error) throw error;
+    if (error) throw new Error(`Falha ao ler ${table}: ${error.message || error}`);
     rows.push(...(data || []));
     if (!data || data.length < PAGE_SIZE) break;
     from += PAGE_SIZE;
@@ -760,7 +802,7 @@ async function bootstrapSession(user) {
   try {
     const { data: members, error: membersError } = await withTimeout(client.from('membros').select('*'), 30000, 'Tempo esgotado ao ler os membros.');
     if (token !== bootToken) return;
-    if (membersError) throw membersError;
+    if (membersError) throw new Error(`Falha ao ler membros: ${membersError.message || membersError}`);
     myMember = (members || []).find(m => m.user_id === me.id) || null;
     if (!myMember) {
       setSyncStatus('Sua conta ainda não está na casa.', 'off', 'Rode o arquivo supabase_v2.sql no SQL Editor do Supabase e entre de novo.');
@@ -779,7 +821,7 @@ async function bootstrapSession(user) {
       fetchAll('orcamentos')
     ]);
     if (token !== bootToken) return;
-    if (casaRows.error) throw casaRows.error;
+    if (casaRows.error) throw new Error(`Falha ao ler casas: ${casaRows.error.message || casaRows.error}`);
     State.casa = { id: casaId, nome: casaRows.data?.[0]?.nome || CONFIG.nomeDaCasa || 'Nossa casa' };
     State.accounts = contas.length ? contas.map(accountFromRow).sort((a, b) => a.position - b.position) : DEFAULT_ACCOUNTS.map(a => ({ ...a }));
     // Mantém as alterações ainda não enviadas por cima do que veio da nuvem.
@@ -792,6 +834,7 @@ async function bootstrapSession(user) {
     saveCache();
     renderAll();
     setSyncStatus(queue.length ? 'Enviando alterações guardadas...' : 'Tudo sincronizado.', queue.length ? 'saving' : 'ok');
+    skipNextRealtimeReload = true; // acabou de ler tudo da nuvem
     subscribeRealtime();
     await flushQueue();
     if (token !== bootToken) return;
@@ -802,14 +845,20 @@ async function bootstrapSession(user) {
     if (token !== bootToken) return;
     console.error('Falha ao carregar a nuvem:', error);
     const hasLocal = State.transactions.length > 0 || State.goals.length > 0;
-    setSyncStatus(
-      hasLocal ? 'Nuvem indisponível. Mostrando a cópia deste aparelho.' : 'Não consegui carregar a nuvem.',
-      'off',
-      String(error?.message || error)
-    );
-    if (!hasLocal) showToast(`Não consegui carregar os dados: ${error?.message || error}`, 'error', 6000);
+    const detail = describeCloudError(error);
+    setSyncStatus(hasLocal ? 'Nuvem indisponível. Mostrando a cópia deste aparelho.' : 'Não consegui carregar a nuvem.', 'off', detail);
+    if (!hasLocal) showToast(`Não consegui carregar os dados. ${detail}`, 'error', 8000);
     scheduleRealtimeRetry(15000);
   }
+}
+
+function describeCloudError(error) {
+  const message = String(error?.message || error || 'erro desconhecido');
+  if (/fetch|network|load failed|resolve|name_not_resolved/i.test(message)) {
+    return `${message}. Sem resposta do banco: confira a internet. Se o projeto no Supabase estiver pausado (7 dias sem uso), abra supabase.com e clique em Restore.`;
+  }
+  if (/jwt|expired|401|refresh/i.test(message)) return `${message}. Sua sessão venceu: saia e entre de novo.`;
+  return message;
 }
 
 function mergePendingTransactions(cloudTxs) {
@@ -895,8 +944,12 @@ function subscribeRealtime() {
     renderDataHealthPanel();
     if (status === 'SUBSCRIBED') {
       clearTimeout(realtimeRetryTimer);
-      // Pode ter perdido algo enquanto estava desligado: relê a nuvem sem travar a tela.
-      reloadFromCloud().catch(error => console.warn('Releitura após reconectar falhou:', error));
+      if (skipNextRealtimeReload) {
+        skipNextRealtimeReload = false; // acabamos de carregar tudo; nada a reler
+      } else {
+        // Reconectou depois de uma queda: pode ter perdido algo, relê sem travar a tela.
+        reloadFromCloud().catch(error => console.warn('Releitura após reconectar falhou:', error));
+      }
     }
     if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
       scheduleRealtimeRetry(10000);
@@ -2824,13 +2877,16 @@ document.addEventListener('DOMContentLoaded', () => {
     if (me) setSyncStatus('Sem internet. As alterações ficam guardadas neste aparelho.', 'warn', 'Nada se perde. Quando a conexão voltar, eu envio.');
   });
 
+  let hiddenAt = 0;
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden || !me || offlineMode) return;
-    if (!navigator.onLine) return;
+    if (document.hidden) { hiddenAt = Date.now(); flushCacheNow(); return; }
+    if (!me || offlineMode || !navigator.onLine) return;
     flushQueue();
+    const awayMs = hiddenAt ? Date.now() - hiddenAt : 0;
     if (realtimeStatus !== 'SUBSCRIBED') scheduleRealtimeRetry(300);
-    else reloadFromCloud().catch(error => console.warn('Releitura ao voltar falhou:', error));
+    else if (awayMs > 60000) reloadFromCloud().catch(error => console.warn('Releitura ao voltar falhou:', error)); // muito tempo fora: o tempo real pode ter perdido algo
   });
+  window.addEventListener('pagehide', flushCacheNow);
 
   if ('serviceWorker' in navigator) {
     let refreshing = false;

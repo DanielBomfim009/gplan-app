@@ -1,6 +1,6 @@
 // Service worker da versão 2. Troque VERSION a cada publicação para o
 // celular pegar a versão nova (o cache antigo é apagado na ativação).
-const VERSION = 'v2-003';
+const VERSION = 'v2-004';
 const CACHE_NAME = `controle-financeiro-${VERSION}`;
 
 const CORE_ASSETS = [
