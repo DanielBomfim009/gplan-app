@@ -13,7 +13,7 @@
 const CONFIG = window.GPLAN_CONFIG || {};
 const SUPABASE_URL = String(CONFIG.supabaseUrl || '').trim();
 const SUPABASE_KEY = String(CONFIG.supabaseKey || '').trim();
-const APP_VERSION = '5.1.0';
+const APP_VERSION = '5.2.0';
 const PAGE_SIZE = 1000;
 const RECORRENCIA_MESES = 12;
 const LS_NOTIF = 'gplan2:avisos';
@@ -148,6 +148,17 @@ const toDateInputValue = (date) => {
 };
 const todayInput = () => toDateInputValue(new Date());
 const isDateInput = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
+// Data que conta para o mês: a de pagamento, quando existe; senão, a de vencimento.
+const effectiveDate = (t) => (isDateInput(t?.payDate) ? t.payDate : (t?.date || ''));
+const hasSeparatePayDate = (t) => isDateInput(t?.payDate) && t.payDate !== t.date;
+const shiftMonths = (value, months) => {
+  const d = parseLocalDate(value);
+  if (!d) return value;
+  const first = new Date(d.getFullYear(), d.getMonth() + months, 1);
+  const lastDay = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+  return toDateInputValue(new Date(first.getFullYear(), first.getMonth(), Math.min(d.getDate(), lastDay)));
+};
+const dueSuffix = (t) => (hasSeparatePayDate(t) ? ` · ${t.type === 'income' ? 'previsto' : 'vence'} ${formatDate(t.date)}` : '');
 const getMonthKeyFromDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 const getMonthLabel = (date) => date.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
 const formatDate = (d) => (parseLocalDate(d) || new Date()).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
@@ -160,12 +171,12 @@ const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slic
 const GOAL_CATEGORIES = { reserve: 'Reserva', travel: 'Viagem', purchase: 'Compra', debt: 'Dívida', emergency: 'Emergência', other: 'Outro' };
 const getGoalCategoryLabel = (category = 'other') => GOAL_CATEGORIES[category] || GOAL_CATEGORIES.other;
 const sortTransactionsByDateDesc = (transactions) => [...transactions].sort((a, b) => {
-  const dateDiff = (parseLocalDate(b.date)?.getTime() || 0) - (parseLocalDate(a.date)?.getTime() || 0);
+  const dateDiff = (parseLocalDate(effectiveDate(b))?.getTime() || 0) - (parseLocalDate(effectiveDate(a))?.getTime() || 0);
   if (dateDiff !== 0) return dateDiff;
   return String(b.id).localeCompare(String(a.id), 'pt-BR', { numeric: true });
 });
 const sortTransactionsByDateAsc = (transactions) => [...transactions].sort((a, b) => {
-  const dateDiff = (parseLocalDate(a.date)?.getTime() || 0) - (parseLocalDate(b.date)?.getTime() || 0);
+  const dateDiff = (parseLocalDate(effectiveDate(a))?.getTime() || 0) - (parseLocalDate(effectiveDate(b))?.getTime() || 0);
   if (dateDiff !== 0) return dateDiff;
   return String(a.id).localeCompare(String(b.id), 'pt-BR', { numeric: true });
 });
@@ -242,6 +253,7 @@ function txFromRow(r) {
     amount: round2(r.amount),
     description: r.description || '',
     date: String(r.date || '').slice(0, 10),
+    payDate: isDateInput(String(r.data_pagamento || '').slice(0, 10)) ? String(r.data_pagamento).slice(0, 10) : null,
     category: r.category || 'other',
     accountId: r.account_id || 'checking',
     paymentMethod: r.payment_method || 'credit',
@@ -256,7 +268,7 @@ function txFromRow(r) {
 }
 
 function txToRow(t) {
-  return {
+  const row = {
     id: String(t.id),
     casa_id: casaId,
     type: t.type === 'income' ? 'income' : 'expense',
@@ -270,6 +282,9 @@ function txToRow(t) {
     recurring: Boolean(t.recurring),
     recurring_id: t.recurringId || null
   };
+  // Só manda a coluna nova se o banco já a tiver (SQL 2.2); vazia = paga no dia do vencimento.
+  if (payDateSupported) row.data_pagamento = hasSeparatePayDate(t) ? t.payDate : null;
+  return row;
 }
 
 function goalFromRow(r) {
@@ -482,6 +497,15 @@ async function flushQueue() {
           setSyncStatus('Nuvem fora de alcance. Tentando de novo em instantes.', 'warn', String(result.error.message || ''));
           setTimeout(flushQueue, 8000);
           return;
+        }
+        if (payDateSupported && /data_pagamento/i.test(String(result.error.message || ''))) {
+          // Banco ainda sem a coluna da data de pagamento: segue sem ela e avisa uma vez.
+          payDateSupported = false;
+          payDateChecked = true;
+          applyPayDateSupport();
+          queue.forEach(q => { if (q.table === 'lancamentos' && Array.isArray(q.rows)) q.rows.forEach(r => { delete r.data_pagamento; }); });
+          saveQueue();
+          continue;
         }
         console.warn('O banco recusou uma alteração:', result.error, op);
         queue.shift();
@@ -846,6 +870,7 @@ async function bootstrapSession(user) {
     lastCloudReadAt = new Date().toISOString();
     saveCache();
     renderAll();
+    checkPayDateColumn();
     setSyncStatus(queue.length ? 'Enviando alterações guardadas...' : 'Tudo sincronizado.', queue.length ? 'saving' : 'ok');
     skipNextRealtimeReload = true; // acabou de ler tudo da nuvem
     subscribeRealtime();
@@ -1094,10 +1119,10 @@ function flushNotices() {
     if (table === 'lancamentos') {
       const kind = row.type === 'income' ? 'a receita' : 'a despesa';
       const value = formatMoney(row.amount);
-      if (eventType === 'INSERT') { title = `${whoCap} lançou ${kind}`; body = `${row.description} · ${value} · ${formatDate(row.date)}`; }
+      if (eventType === 'INSERT') { title = `${whoCap} lançou ${kind}`; body = `${row.description} · ${value} · ${formatDate(row.data_pagamento || row.date)}`; }
       else if (eventType === 'DELETE') { title = `${whoCap} excluiu ${kind}`; body = `${row.description} · ${value}`; }
       else if (row.status === 'paid') { title = `${whoCap} marcou como ${row.type === 'income' ? 'recebido' : 'pago'}`; body = `${row.description} · ${value}`; }
-      else { title = `${whoCap} alterou ${kind}`; body = `${row.description} · ${value} · ${formatDate(row.date)}`; }
+      else { title = `${whoCap} alterou ${kind}`; body = `${row.description} · ${value} · ${formatDate(row.data_pagamento || row.date)}`; }
     } else if (table === 'metas') {
       title = eventType === 'DELETE' ? `${whoCap} excluiu uma meta` : `${whoCap} atualizou a meta`;
       body = `${row.title} · ${formatMoney(row.current)} de ${formatMoney(row.target)}`;
@@ -1205,7 +1230,7 @@ async function showDeviceNotification(title, body, { force = false } = {}) {
 
 function getDueExpenses() {
   const today = todayInput();
-  return State.transactions.filter(t => t.type === 'expense' && t.status === 'pending' && t.date && t.date <= today);
+  return State.transactions.filter(t => t.type === 'expense' && t.status === 'pending' && effectiveDate(t) && effectiveDate(t) <= today);
 }
 
 function updateDueAlerts() {
@@ -1214,7 +1239,7 @@ function updateDueAlerts() {
   const due = getDueExpenses();
   if (!due.length) { box.classList.add('hidden'); return; }
   const total = due.reduce((s, t) => s + t.amount, 0);
-  const overdue = due.filter(t => t.date < todayInput()).length;
+  const overdue = due.filter(t => effectiveDate(t) < todayInput()).length;
   safeSetText('due-alerts-title', due.length === 1 ? '1 conta vencendo ou atrasada' : `${due.length} contas vencendo ou atrasadas`);
   safeSetText('due-alerts-detail', `${formatMoney(total)} no total${overdue ? ` · ${overdue} já ${overdue === 1 ? 'passou' : 'passaram'} da data` : ''}`);
   box.classList.remove('hidden');
@@ -1348,6 +1373,7 @@ async function importPayload(payload, sourceLabel = 'backup') {
     amount: round2(t.amount),
     description: t.description || t.title || 'Lançamento',
     date: isDateInput(t.date) ? t.date : toDateInputValue(parseLocalDate(t.date) || new Date()),
+    payDate: isDateInput(t.payDate) ? t.payDate : null,
     category: t.category || 'other',
     accountId: knownAccountIds.has(String(t.accountId)) ? String(t.accountId) : (State.accounts[0]?.id || 'checking'),
     paymentMethod: t.paymentMethod || 'credit',
@@ -1385,11 +1411,11 @@ async function importPayload(payload, sourceLabel = 'backup') {
 }
 
 function focusViewsOnTransactionMonth() {
-  const txs = State.transactions.filter(t => parseLocalDate(t.date));
+  const txs = State.transactions.filter(t => parseLocalDate(effectiveDate(t)));
   if (!txs.length) return;
   const now = new Date();
-  const currentMonthTx = txs.find(t => { const d = parseLocalDate(t.date); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); });
-  const base = currentMonthTx ? parseLocalDate(currentMonthTx.date) : parseLocalDate(sortTransactionsByDateDesc(txs)[0].date);
+  const currentMonthTx = txs.find(t => { const d = parseLocalDate(effectiveDate(t)); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); });
+  const base = currentMonthTx ? parseLocalDate(effectiveDate(currentMonthTx)) : parseLocalDate(effectiveDate(sortTransactionsByDateDesc(txs)[0]));
   const focus = new Date(base.getFullYear(), base.getMonth(), 1);
   State.dashboardPeriod = 'custom';
   State.dashboardCustomDate = new Date(focus);
@@ -1467,7 +1493,7 @@ function filterByDateRange(transactions, targetDate, mode = 'month') {
   const tMonth = target.getMonth();
   const tDay = target.getDate();
   return transactions.filter(t => {
-    const txDate = parseLocalDate(t.date);
+    const txDate = parseLocalDate(effectiveDate(t));
     if (!txDate) return false;
     if (mode === 'month') return txDate.getMonth() === tMonth && txDate.getFullYear() === tYear;
     if (mode === 'day') return txDate.getDate() === tDay && txDate.getMonth() === tMonth && txDate.getFullYear() === tYear;
@@ -1478,7 +1504,7 @@ function filterByDateRange(transactions, targetDate, mode = 'month') {
 function filterByPeriod(transactions, period, customDate = null) {
   const now = parseLocalDate(customDate) || new Date();
   return transactions.filter(t => {
-    const txDate = parseLocalDate(t.date);
+    const txDate = parseLocalDate(effectiveDate(t));
     if (!txDate) return false;
     if (period === 'month' || period === 'custom') return txDate.getMonth() === now.getMonth() && txDate.getFullYear() === now.getFullYear();
     if (period === 'week') {
@@ -1542,7 +1568,7 @@ function buildDashboardInsights(transactions) {
 function buildMonthlyProfitSummary(transactions) {
   const monthly = {};
   transactions.forEach(t => {
-    const date = parseLocalDate(t.date);
+    const date = parseLocalDate(effectiveDate(t));
     if (!date) return;
     const key = getMonthKeyFromDate(date);
     if (!monthly[key]) monthly[key] = { key, label: date.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }), income: 0, expense: 0, profit: 0 };
@@ -1569,6 +1595,7 @@ function buildRecurringSeries(baseTx) {
       ...baseTx,
       id: i === 0 ? String(baseTx.id || `${recurringId}_${suffix}`) : `${recurringId}_${suffix}`,
       date: toDateInputValue(date),
+      payDate: hasSeparatePayDate(baseTx) ? shiftMonths(baseTx.payDate, i) : null,
       recurring: true,
       recurringId,
       isRecurringInstance: false
@@ -1757,7 +1784,7 @@ function renderControlList(type, transactions) {
         ${txIconHtml(type)}
         <div class="tx-content">
           <p class="tx-title">${escapeHtml(t.description)} ${t.recurring ? RECURRING_BADGE : ''}</p>
-          <p class="tx-sub">${formatDate(t.date)} - ${escapeHtml(account.name)}${authorSuffix(t)}</p>
+          <p class="tx-sub">${formatDate(effectiveDate(t))} - ${escapeHtml(account.name)}${dueSuffix(t)}${authorSuffix(t)}</p>
         </div>
         <div class="flex items-center gap-2 flex-shrink-0">
           <span class="text-sm font-semibold ${type === 'income' ? 'text-income' : 'text-expense'}">${type === 'income' ? '+' : '-'}${formatMoney(t.amount)}</span>
@@ -1796,7 +1823,7 @@ function renderTransactions() {
         ${txIconHtml(t.type)}
         <div class="tx-content">
           <p class="tx-title">${escapeHtml(t.description)} ${t.status === 'pending' ? '<span style="color:#ff8a50;font-size:9px;margin-left:4px;">Pendente</span>' : ''}${t.recurring ? RECURRING_BADGE : ''}</p>
-          <p class="tx-sub">${escapeHtml(cat.name)} - ${formatDate(t.date)} - ${escapeHtml(account.name)}${authorSuffix(t)}</p>
+          <p class="tx-sub">${escapeHtml(cat.name)} - ${formatDate(effectiveDate(t))} - ${escapeHtml(account.name)}${dueSuffix(t)}${authorSuffix(t)}</p>
         </div>
         <div class="flex items-center gap-2 flex-shrink-0">
           <span class="tx-amount ${t.type === 'income' ? 'text-income' : 'text-expense'}">${t.type === 'income' ? '+' : '-'}${formatMoney(t.amount)}</span>
@@ -2055,7 +2082,7 @@ function renderCalendar() {
   const todayStr = todayInput();
   for (let d = 1; d <= lastDay.getDate(); d += 1) {
     const dateStr = `${calDate.getFullYear()}-${String(calDate.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    const dayTx = monthTx.filter(t => t.date === dateStr);
+    const dayTx = monthTx.filter(t => effectiveDate(t) === dateStr);
     const dayIncome = dayTx.some(t => t.type === 'income');
     const dayExpense = dayTx.some(t => t.type === 'expense');
     let dayClass = 'calendar-day';
@@ -2095,7 +2122,7 @@ function updateCalendarSummary(monthTx) {
   if (!listEl || !titleEl || !clearBtn) return;
   let displayTx = sortTransactionsByDateAsc(monthTx);
   if (State.calendarSelectedDate) {
-    displayTx = sortTransactionsByDateAsc(monthTx.filter(t => t.date === State.calendarSelectedDate));
+    displayTx = sortTransactionsByDateAsc(monthTx.filter(t => effectiveDate(t) === State.calendarSelectedDate));
     const dateObj = parseLocalDate(State.calendarSelectedDate);
     titleEl.textContent = `Dia ${dateObj.getDate()} de ${dateObj.toLocaleDateString('pt-BR', { month: 'long' })}`;
     clearBtn.classList.remove('hidden');
@@ -2113,14 +2140,14 @@ function updateCalendarSummary(monthTx) {
 
   const todayKey = todayInput();
   const monthSorted = sortTransactionsByDateAsc(monthTx);
-  const nextTx = monthSorted.find(t => t.type === 'expense' && t.status === 'pending' && t.date >= todayKey)
-    || monthSorted.find(t => t.status === 'pending' && t.date >= todayKey)
-    || monthSorted.find(t => t.date >= todayKey)
+  const nextTx = monthSorted.find(t => t.type === 'expense' && t.status === 'pending' && effectiveDate(t) >= todayKey)
+    || monthSorted.find(t => t.status === 'pending' && effectiveDate(t) >= todayKey)
+    || monthSorted.find(t => effectiveDate(t) >= todayKey)
     || monthSorted[0];
   const nextAmountEl = document.getElementById('cal-next-amount');
   if (nextTx) {
     safeSetText('cal-next-title', nextTx.description || 'Lançamento');
-    safeSetText('cal-next-detail', `${formatDate(nextTx.date)} - ${getCategory(nextTx.category).name} - ${getAccount(nextTx.accountId).name}`);
+    safeSetText('cal-next-detail', `${formatDate(effectiveDate(nextTx))} - ${getCategory(nextTx.category).name} - ${getAccount(nextTx.accountId).name}`);
     if (nextAmountEl) { nextAmountEl.textContent = `${nextTx.type === 'income' ? '+' : '-'}${formatMoney(nextTx.amount)}`; nextAmountEl.className = `calendar-next-amount ${nextTx.type === 'income' ? 'text-income' : 'text-expense'}`; }
   } else {
     safeSetText('cal-next-title', 'Sem lançamentos');
@@ -2137,7 +2164,7 @@ function updateCalendarSummary(monthTx) {
           ${txIconHtml(t.type, 'w-4 h-4')}
           <div class="tx-content">
             <p class="tx-title text-xs">${escapeHtml(t.description)}</p>
-            <p class="tx-sub text-[10px]">${formatDate(t.date)} - ${escapeHtml(getCategory(t.category).name)} - ${escapeHtml(getAccount(t.accountId).name)} - ${statusText}${authorSuffix(t)}</p>
+            <p class="tx-sub text-[10px]">${formatDate(effectiveDate(t))} - ${escapeHtml(getCategory(t.category).name)} - ${escapeHtml(getAccount(t.accountId).name)} - ${statusText}${dueSuffix(t)}${authorSuffix(t)}</p>
           </div>
           <span class="text-xs font-semibold ${t.type === 'income' ? 'text-income' : 'text-expense'}">${t.type === 'income' ? '+' : '-'}${formatMoney(t.amount)}</span>
         </div>`;
@@ -2504,6 +2531,7 @@ function openModalTx() {
   document.getElementById('form-tx')?.reset();
   document.getElementById('tx-id').value = '';
   document.getElementById('tx-date').value = todayInput();
+  setTxPayDate(todayInput(), false);
   safeSetText('modal-tx-title', 'Nova Transação');
   editingTxId = null;
   setTxType('expense');
@@ -2520,6 +2548,71 @@ function openModalTx() {
   setTimeout(() => document.getElementById('tx-amount')?.focus(), 120);
 }
 
+// Vencimento x pagamento ------------------------------------------------
+let txPayTouched = false;      // o usuário mexeu na data de pagamento deste lançamento?
+let payDateSupported = true;   // o banco já tem a coluna data_pagamento (SQL 2.2)?
+let payDateChecked = false;
+
+function setTxPayDate(value, touched) {
+  const input = document.getElementById('tx-pay-date');
+  if (input) input.value = isDateInput(value) ? value : '';
+  txPayTouched = Boolean(touched);
+  updateTxPayHint();
+}
+
+function onTxDueDateInput() {
+  const due = document.getElementById('tx-date')?.value;
+  if (!txPayTouched && isDateInput(due)) setTxPayDate(due, false);
+  else updateTxPayHint();
+}
+
+function onTxPayDateInput() {
+  const due = document.getElementById('tx-date')?.value;
+  const pay = document.getElementById('tx-pay-date')?.value;
+  txPayTouched = isDateInput(pay) && pay !== due;
+  updateTxPayHint();
+}
+
+function setTxPayNextMonth() {
+  const due = document.getElementById('tx-date')?.value || todayInput();
+  setTxPayDate(shiftMonths(due, 1), true);
+}
+
+function readTxPayDate() {
+  if (!payDateSupported) return null;
+  const due = document.getElementById('tx-date')?.value;
+  const pay = document.getElementById('tx-pay-date')?.value;
+  return isDateInput(pay) && pay !== due ? pay : null;
+}
+
+function updateTxPayHint() {
+  const hint = document.getElementById('tx-pay-hint');
+  if (!hint) return;
+  if (!payDateSupported) { hint.textContent = ''; return; }
+  const due = parseLocalDate(document.getElementById('tx-date')?.value);
+  const pay = parseLocalDate(document.getElementById('tx-pay-date')?.value);
+  if (!due || !pay || getMonthKeyFromDate(due) === getMonthKeyFromDate(pay)) { hint.textContent = 'Aparece no mês do pagamento.'; return; }
+  const verbo = currentTxType === 'income' ? 'Prevista para' : 'Vence em';
+  hint.textContent = `${verbo} ${getMonthLabel(due)}; conta em ${getMonthLabel(pay)}.`;
+}
+
+function applyPayDateSupport() {
+  document.getElementById('tx-pay-wrap')?.classList.toggle('hidden', !payDateSupported);
+  document.getElementById('tx-pay-unsupported')?.classList.toggle('hidden', payDateSupported);
+  if (!payDateSupported) console.warn('O banco ainda não tem a coluna data_pagamento: rode o v2/supabase_v2_2_pagamento.sql.');
+}
+
+async function checkPayDateColumn() {
+  if (!client || payDateChecked) return;
+  try {
+    const { error } = await client.from('lancamentos').select('data_pagamento').limit(1);
+    if (error && !/data_pagamento/i.test(String(error.message || ''))) return; // outro erro: tenta na próxima carga
+    payDateChecked = true;
+    payDateSupported = !error;
+  } catch (_) { return; }
+  applyPayDateSupport();
+}
+
 function closeModalTx() { document.getElementById('modal-tx')?.classList.remove('active'); syncBodyLock(); }
 
 function setTxType(type) {
@@ -2528,6 +2621,9 @@ function setTxType(type) {
   document.getElementById('btn-income')?.classList.toggle('active', type === 'income');
   const select = document.getElementById('tx-category');
   if (select) select.innerHTML = '<option value="">Selecione...</option>' + State.categories[type].map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+  safeSetText('tx-date-label', type === 'expense' ? 'Vencimento' : 'Data prevista');
+  safeSetText('tx-pay-date-label', type === 'expense' ? 'Pagamento' : 'Recebimento');
+  updateTxPayHint();
   setTxStatus(currentTxStatus);
 }
 
@@ -2576,6 +2672,7 @@ function saveTransaction(e) {
     amount: round2(amount),
     description,
     date: document.getElementById('tx-date').value || todayInput(),
+    payDate: readTxPayDate(),
     category,
     accountId: document.getElementById('tx-account').value || State.accounts[0]?.id || 'checking',
     paymentMethod: State.selectedPaymentMethod,
@@ -2608,6 +2705,7 @@ function editTransaction(id) {
   document.getElementById('tx-amount').value = tx.amount.toFixed(2).replace('.', ',');
   document.getElementById('tx-desc').value = tx.description;
   document.getElementById('tx-date').value = tx.date;
+  setTxPayDate(tx.payDate || tx.date, hasSeparatePayDate(tx));
   safeSetText('modal-tx-title', 'Editar Transação');
   setTxType(tx.type);
   document.getElementById('tx-category').value = tx.category;

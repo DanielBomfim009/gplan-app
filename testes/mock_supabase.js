@@ -27,12 +27,20 @@
     membros: ['user_id', 'casa_id', 'nome', 'cor', 'foto', 'papel', 'created_at', 'updated_at'],
     convites: ['email', 'casa_id', 'criado_por', 'criado_em', 'usado_por', 'usado_em'],
     historico: ['id', 'casa_id', 'user_id', 'acao', 'tabela', 'item_id', 'descricao', 'valor', 'criado_em'],
-    lancamentos: ['id', 'casa_id', 'type', 'amount', 'description', 'date', 'category', 'account_id', 'payment_method', 'status', 'recurring', 'recurring_id', 'created_by', 'updated_by', 'created_at', 'updated_at'],
+    lancamentos: ['id', 'casa_id', 'type', 'amount', 'description', 'date', 'data_pagamento', 'category', 'account_id', 'payment_method', 'status', 'recurring', 'recurring_id', 'created_by', 'updated_by', 'created_at', 'updated_at'],
     metas: ['id', 'casa_id', 'title', 'category', 'deadline', 'target', 'current', 'archived', 'contributions', 'created_by', 'updated_by', 'created_at', 'updated_at'],
     contas: ['id', 'casa_id', 'name', 'type', 'color', 'position', 'created_by', 'updated_by', 'created_at', 'updated_at'],
     orcamentos: ['casa_id', 'category', 'amount', 'created_by', 'updated_by', 'created_at', 'updated_at'],
     user_states: ['user_id', 'app_state', 'updated_at']
   };
+  // Colunas que o teste finge que ainda não existem (sessionStorage 'mock-sem-colunas' = {"tabela": ["coluna"]}).
+  function colunas(table) {
+    const base = SCHEMA[table];
+    if (!base) return base;
+    let sem = [];
+    try { sem = (JSON.parse(sessionStorage.getItem('mock-sem-colunas') || '{}'))[table] || []; } catch (_) { sem = []; }
+    return sem.length ? base.filter(c => !sem.includes(c)) : base;
+  }
   const DB_KEY = 'mock-db';
   const SESSION_KEY = 'mock-session';
   const LATENCY_MS = 15;
@@ -161,8 +169,8 @@
       this._range = null;
       this._limit = null;
     }
-    select() { if (this.op === 'select') return this; return this; }
-    _col(k) { const cols = SCHEMA[this.table]; if (cols && !cols.includes(k)) this._colError = this._colError || { message: `column ${this.table}.${k} does not exist`, code: '42703', status: 400 }; return k; }
+    select(cols) { if (typeof cols === 'string' && cols.trim() && cols.trim() !== '*') cols.split(',').map(s => s.trim().split(/[\s(]/)[0]).filter(Boolean).forEach(c => this._col(c)); return this; }
+    _col(k) { const cols = colunas(this.table); if (cols && !cols.includes(k)) this._colError = this._colError || { message: `column ${this.table}.${k} does not exist`, code: '42703', status: 400 }; return k; }
     eq(k, v) { this._col(k); this.filters.push(r => String(r[k]) === String(v)); return this; }
     in(k, arr) { this._col(k); const s = new Set((arr || []).map(String)); this.filters.push(r => s.has(String(r[k]))); return this; }
     match(obj) { Object.entries(obj || {}).forEach(([k, v]) => this.eq(k, v)); return this; }
@@ -184,7 +192,7 @@
       if (!user) return { data: null, error: { message: 'JWT expired', status: 401 } };
       if (!db[this.table]) return { data: null, error: { message: `relation "${this.table}" does not exist`, status: 404 } };
       if (this._colError) return { data: null, error: this._colError };
-      const cols = SCHEMA[this.table];
+      const cols = colunas(this.table);
       if (cols && (this.op === 'upsert' || this.op === 'update')) {
         const enviados = this.op === 'upsert' ? this.rows.flatMap(r => Object.keys(r)) : Object.keys(this.patch);
         const estranha = enviados.find(k => !cols.includes(k));

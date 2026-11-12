@@ -1119,13 +1119,19 @@
           </div>
           <div class="form-grid">
             <div>
-              <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Data</label>
-              <input type="date" id="tx-date" class="input-styled">
+              <label for="tx-date" id="tx-date-label" class="text-xs text-[#6b8a99] font-medium mb-2 block">Vencimento</label>
+              <input type="date" id="tx-date" class="input-styled" oninput="onTxDueDateInput()" onchange="onTxDueDateInput()">
             </div>
-            <div>
-              <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Categoria *</label>
-              <select id="tx-category" class="input-styled" required></select>
+            <div id="tx-pay-wrap">
+              <label for="tx-pay-date" class="text-xs text-[#6b8a99] font-medium mb-2 flex items-center justify-between gap-2"><span id="tx-pay-date-label">Pagamento</span><button type="button" id="tx-pay-next" class="text-brand font-semibold" onclick="setTxPayNextMonth()">mês seguinte</button></label>
+              <input type="date" id="tx-pay-date" class="input-styled" oninput="onTxPayDateInput()" onchange="onTxPayDateInput()">
             </div>
+          </div>
+          <p id="tx-pay-hint" class="text-[10px] text-[#6b8a99] -mt-2">Aparece no mês do pagamento.</p>
+          <p id="tx-pay-unsupported" class="text-[10px] text-orange -mt-2 hidden">Para separar vencimento e pagamento, rode o arquivo supabase_v2_2_pagamento.sql no Supabase.</p>
+          <div>
+            <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Categoria *</label>
+            <select id="tx-category" class="input-styled" required></select>
           </div>
           <div>
             <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Conta / Carteira</label>
