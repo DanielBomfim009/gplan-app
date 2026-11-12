@@ -1,8 +1,7 @@
-// Configuração do banco (Supabase).
-// Preencha com os dados do projeto: Settings > API > Project URL e "anon public" key.
-// A chave "anon public" (ou "publishable") é feita para ficar no aplicativo; não é segredo.
+// Configuração do banco (Supabase) da casa.
+// A chave "publishable" é feita para ficar no aplicativo; não é segredo.
 window.GPLAN_CONFIG = {
-  supabaseUrl: '',
-  supabaseKey: '',
+  supabaseUrl: 'https://xnxudiyrumkncyoibefe.supabase.co',
+  supabaseKey: 'sb_publishable_1P9zA4LwM9ZzP8cV2LCYeA_B8lMyyFd',
   nomeDaCasa: 'Nossa casa'
 };
