@@ -1,11 +1,12 @@
 // Service worker da versão 2. Troque VERSION a cada publicação para o
 // celular pegar a versão nova (o cache antigo é apagado na ativação).
-const VERSION = 'v2-001';
+const VERSION = 'v2-002';
 const CACHE_NAME = `controle-financeiro-${VERSION}`;
 
 const CORE_ASSETS = [
   './',
   './index.html',
+  './tailwind.css',
   './styles.css',
   './app.js',
   './config.js',
@@ -15,8 +16,7 @@ const CORE_ASSETS = [
 ];
 
 const EXTERNAL_ASSETS = [
-  'https://cdn.tailwindcss.com/',
-  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js',
+  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js',
   'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap'
 ];
 

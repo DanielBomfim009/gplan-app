@@ -103,6 +103,7 @@
     const casa = minhaCasa(db);
     if (!casa) return false;
     if (table === 'casas') return row.id === casa;
+    if (table === 'user_states') return row.user_id === currentUser()?.id; // tabela da versão antiga
     return row.casa_id === casa;
   }
 
@@ -122,6 +123,7 @@
     order(k, opts = {}) { this._order = { k, ascending: opts.ascending !== false }; return this; }
     range(a, b) { this._range = [a, b]; return this; }
     limit(n) { this._limit = n; return this; }
+    maybeSingle() { this._single = true; return this; }
     upsert(rows, opts = {}) { this.op = 'upsert'; this.rows = Array.isArray(rows) ? rows : [rows]; this.onConflict = String(opts.onConflict || pk(this.table).join(',')).split(','); return this; }
     insert(rows) { return this.upsert(rows); }
     update(patch) { this.op = 'update'; this.patch = patch || {}; return this; }
@@ -147,6 +149,7 @@
         }
         if (this._range) rows = rows.slice(this._range[0], this._range[1] + 1);
         if (this._limit != null) rows = rows.slice(0, this._limit);
+        if (this._single) return { data: rows[0] || null, error: null };
         return { data: rows, error: null };
       }
 
@@ -241,5 +244,6 @@
   }
 
   window.supabase = { createClient };
+  window.__mockSeed = seed;
   window.__mockFireRecovery = () => fireAuth('PASSWORD_RECOVERY', getSession());
 })();

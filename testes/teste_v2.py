@@ -338,6 +338,31 @@ def main():
         checar("R$ 1.299,90" in txt(page3, "#dash-expense"), "painel do mês mostra as despesas importadas")
         page3.close()
 
+        print("\n== 14b. Importar da nuvem antiga (tabela user_states do mesmo projeto)")
+        page5 = ctx.new_page()
+        rotear(page5)
+        page5.goto(BASE)
+        page5.evaluate("localStorage.clear(); sessionStorage.clear();")
+        nuvem_antiga = {
+            "profile": {"name": "Daniel", "email": "daniel@teste.com"},
+            "accounts": [{"id": "checking", "name": "Conta Principal", "type": "Conta corrente", "color": "#00b4a0"}],
+            "budgets": {},
+            "goals": [],
+            "transactions": [
+                {"id": "1600000000001", "type": "expense", "amount": 350, "description": "Condomínio", "date": f"{hoje[:7]}-03", "category": "home", "accountId": "checking", "paymentMethod": "pix", "status": "paid", "recurring": False},
+                {"id": "1600000000002", "type": "income", "amount": 1000, "description": "Freela", "date": f"{hoje[:7]}-04", "category": "freelance", "accountId": "checking", "paymentMethod": "pix", "status": "pending", "recurring": False},
+            ],
+        }
+        page5.evaluate("""(l) => { const db = window.__mockSeed(); db.user_states = [{ user_id: 'u1', app_state: l, updated_at: new Date().toISOString() }]; localStorage.setItem('mock-db', JSON.stringify(db)); }""", nuvem_antiga)
+        entrar(page5, "daniel@teste.com")
+        page5.wait_for_selector("#modal-confirm.active", timeout=10000)
+        checar("na nuvem antiga" in txt(page5, "#confirm-message") and "2 lançamentos" in txt(page5, "#confirm-message"), "pergunta cita a nuvem antiga com 2 lançamentos")
+        page5.click("#confirm-ok")
+        esperar_fila_vazia(page5)
+        d = db(page5)
+        checar(len(d["lancamentos"]) == 2 and {r["description"] for r in d["lancamentos"]} == {"Condomínio", "Freela"}, "2 lançamentos vieram da nuvem antiga para a casa")
+        page5.close()
+
         print("\n== 15. Recuperação de senha e troca")
         page4 = ctx.new_page()
         rotear(page4)

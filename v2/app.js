@@ -662,6 +662,7 @@ function resetSessionState() {
   State.members = [];
   State.profile = { name: '', email: '', photo: null, color: '#00b4a0' };
   realtimeStatus = 'off';
+  cloudLegacyCandidate = null;
   renderAll();
 }
 
@@ -1182,27 +1183,64 @@ function findLegacyData() {
   return candidates[0] || null;
 }
 
+// Se a versão nova rodar no MESMO projeto do Supabase da versão antiga, os
+// lançamentos antigos ainda estão na tabela user_states (um JSON por usuário).
+let cloudLegacyCandidate = null; // null = ainda não procurou; false = não há
+
+async function findCloudLegacy() {
+  if (!client || !me || offlineMode || !navigator.onLine) return null;
+  try {
+    const { data, error } = await withTimeout(
+      client.from('user_states').select('app_state, updated_at').eq('user_id', me.id).maybeSingle(),
+      15000,
+      'Tempo esgotado ao procurar a nuvem antiga.'
+    );
+    if (error || !data?.app_state) return null;
+    const payload = extractStatePayload(data.app_state);
+    const count = countPayloadTransactions(payload);
+    if (!count) return null;
+    return {
+      key: 'nuvem-antiga',
+      origem: 'na nuvem antiga (mesmo projeto do Supabase)',
+      payload,
+      count,
+      goals: Array.isArray(payload.goals) ? payload.goals.length : 0,
+      at: parseTimestamp(data.updated_at)
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function pickLegacyCandidate() {
+  const local = findLegacyData();
+  if (local) local.origem = 'guardados neste aparelho';
+  const candidates = [local, cloudLegacyCandidate].filter(Boolean).sort((a, b) => (b.count - a.count) || (b.at - a.at));
+  return candidates[0] || null;
+}
+
 function updateLegacyCard() {
   const card = document.getElementById('legacy-import-card');
   if (!card) return;
-  legacyCandidate = findLegacyData();
+  legacyCandidate = pickLegacyCandidate();
   card.classList.toggle('hidden', !legacyCandidate);
   if (legacyCandidate) {
-    safeSetText('legacy-import-text', `Encontrei ${legacyCandidate.count} lançamentos e ${legacyCandidate.goals} metas da versão antiga guardados neste aparelho.`);
+    safeSetText('legacy-import-text', `Encontrei ${legacyCandidate.count} lançamentos e ${legacyCandidate.goals} metas da versão antiga ${legacyCandidate.origem}.`);
   }
 }
 
 async function offerLegacyImport(manual = false) {
+  if (cloudLegacyCandidate === null) cloudLegacyCandidate = (await findCloudLegacy()) || false;
   updateLegacyCard();
-  if (!legacyCandidate) { if (manual) showToast('Não há dados da versão antiga neste aparelho.', 'error'); return; }
+  if (!legacyCandidate) { if (manual) showToast('Não há dados da versão antiga neste aparelho nem na nuvem antiga.', 'error'); return; }
   if (!manual && State.transactions.length > 0) return; // a casa já tem dados; só por pedido
   const ok = await askConfirm({
     title: 'Trazer os dados antigos?',
-    message: `Encontrei ${legacyCandidate.count} lançamentos e ${legacyCandidate.goals} metas da versão antiga neste aparelho. Quer importar tudo para a casa agora?`,
+    message: `Encontrei ${legacyCandidate.count} lançamentos e ${legacyCandidate.goals} metas da versão antiga ${legacyCandidate.origem}. Quer importar tudo para a casa agora?`,
     okLabel: 'Importar'
   });
   if (!ok) return;
-  await importPayload(legacyCandidate.payload, 'versão antiga');
+  await importPayload(legacyCandidate.payload, legacyCandidate.key === 'nuvem-antiga' ? 'nuvem antiga' : 'versão antiga');
 }
 
 async function importPayload(payload, sourceLabel = 'backup') {

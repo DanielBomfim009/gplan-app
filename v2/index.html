@@ -14,31 +14,13 @@
   <link rel="apple-touch-icon" href="logo-192.png">
   <link rel="icon" href="logo-192.png" type="image/png">
 
-  <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-  <script>
-    window.tailwind = window.tailwind || {};
-    window.tailwind.config = {
-      theme: {
-        extend: {
-          fontFamily: { sans: ['Inter', 'sans-serif'], display: ['Space Grotesk', 'sans-serif'] },
-          colors: {
-            'app': { 'bg': '#0d1f2d', 'card': '#132a3c' },
-            'brand': { 'DEFAULT': '#00b4a0', 'light': '#00d4b8', 'dark': '#008577' },
-            'income': '#00c853',
-            'expense': '#ff5252',
-            'warning': '#ffb300',
-            'purple': '#9c7cfa',
-            'orange': '#ff8a50'
-          }
-        }
-      }
-    }
-  </script>
-
   <link rel="stylesheet" href="styles.css">
+  <!-- CSS gerado localmente (pasta tailwind/ do repositório), por último para as classes utilitárias
+       valerem sobre as classes próprias, como o Tailwind da internet fazia. -->
+  <link rel="stylesheet" href="tailwind.css">
 </head>
 <body>
 
