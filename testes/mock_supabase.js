@@ -7,14 +7,26 @@
 (function () {
   const CASA = '00000000-0000-0000-0000-000000000001';
   const USERS = [
-    { id: 'u1', email: 'daniel@teste.com', password: '123456', nome: 'Daniel', cor: '#00b4a0' },
-    { id: 'u2', email: 'maria@teste.com', password: '123456', nome: 'Maria', cor: '#ffb300' }
+    { id: 'u1', email: 'daniel@teste.com', password: '123456', nome: 'Daniel', cor: '#00b4a0', papel: 'admin' },
+    { id: 'u2', email: 'maria@teste.com', password: '123456', nome: 'Maria', cor: '#ffb300', papel: 'membro' },
+    { id: 'u3', email: 'ana@teste.com', password: '123456', nome: 'ana', cor: '#9c7cfa', papel: 'membro' }
   ];
+  const USERS_KEY = 'mock-users';
+  function loadUsers() {
+    try { const extra = JSON.parse(localStorage.getItem(USERS_KEY) || '[]'); return USERS.concat(extra); } catch (_) { return USERS.slice(); }
+  }
+  function addUser(u) {
+    const extra = (() => { try { return JSON.parse(localStorage.getItem(USERS_KEY) || '[]'); } catch (_) { return []; } })();
+    extra.push(u);
+    localStorage.setItem(USERS_KEY, JSON.stringify(extra));
+  }
   // Colunas reais de cada tabela (iguais ao supabase_v2.sql). Coluna
   // desconhecida em filtro, ordenação ou gravação dá erro como no PostgREST.
   const SCHEMA = {
     casas: ['id', 'nome', 'created_at'],
-    membros: ['user_id', 'casa_id', 'nome', 'cor', 'foto', 'created_at', 'updated_at'],
+    membros: ['user_id', 'casa_id', 'nome', 'cor', 'foto', 'papel', 'created_at', 'updated_at'],
+    convites: ['email', 'casa_id', 'criado_por', 'criado_em', 'usado_por', 'usado_em'],
+    historico: ['id', 'casa_id', 'user_id', 'acao', 'tabela', 'item_id', 'descricao', 'valor', 'criado_em'],
     lancamentos: ['id', 'casa_id', 'type', 'amount', 'description', 'date', 'category', 'account_id', 'payment_method', 'status', 'recurring', 'recurring_id', 'created_by', 'updated_by', 'created_at', 'updated_at'],
     metas: ['id', 'casa_id', 'title', 'category', 'deadline', 'target', 'current', 'archived', 'contributions', 'created_by', 'updated_by', 'created_at', 'updated_at'],
     contas: ['id', 'casa_id', 'name', 'type', 'color', 'position', 'created_by', 'updated_by', 'created_at', 'updated_at'],
@@ -34,7 +46,9 @@
   function seed() {
     return {
       casas: [{ id: CASA, nome: 'Casa Teste', created_at: now() }],
-      membros: USERS.map(u => ({ user_id: u.id, casa_id: CASA, nome: u.nome, cor: u.cor, foto: null, created_at: now(), updated_at: now() })),
+      membros: USERS.map(u => ({ user_id: u.id, casa_id: CASA, nome: u.nome, cor: u.cor, foto: null, papel: u.papel, created_at: now(), updated_at: now() })),
+      convites: [],
+      historico: [],
       contas: [
         { id: 'checking', casa_id: CASA, name: 'Conta Principal', type: 'Conta corrente', color: '#00b4a0', position: 0 },
         { id: 'cash_wallet', casa_id: CASA, name: 'Carteira', type: 'Dinheiro', color: '#ffb300', position: 1 },
@@ -103,6 +117,26 @@
   if (bc) bc.onmessage = (ev) => deliver(ev.data);
 
   function currentUser() { return getSession()?.user || null; }
+
+  let historicoSeq = Date.now();
+  function registrarHistorico(db, table, tipo, novo, antigo) {
+    if (table !== 'lancamentos' && table !== 'metas') return;
+    if (window.__mockSilencio) return;
+    const r = tipo === 'DELETE' ? antigo : novo;
+    let acao;
+    if (table === 'lancamentos') {
+      if (tipo === 'INSERT') acao = 'criou';
+      else if (tipo === 'DELETE') acao = 'excluiu';
+      else if (novo.status !== antigo.status) acao = novo.status === 'paid' ? 'pagou' : 'reabriu';
+      else acao = 'alterou';
+    } else {
+      acao = tipo === 'INSERT' ? 'criou meta' : tipo === 'DELETE' ? 'excluiu meta' : 'alterou meta';
+    }
+    db.historico = db.historico || [];
+    const linha = { id: ++historicoSeq, casa_id: r.casa_id, user_id: currentUser()?.id || null, acao, tabela: table, item_id: String(r.id), descricao: table === 'lancamentos' ? r.description : r.title, valor: table === 'lancamentos' ? r.amount : r.current, criado_em: now() };
+    db.historico.push(linha);
+    setTimeout(() => emit('historico', 'INSERT', linha, {}), 0);
+  }
 
   function minhaCasa(db) {
     const u = currentUser();
@@ -192,6 +226,7 @@
             results.push({ type: 'INSERT', new: created, old: {} });
           }
         }
+        results.forEach(r => registrarHistorico(db, this.table, r.type, r.new, r.old));
         saveDb(db);
         results.forEach(r => emit(this.table, r.type, r.new, r.old));
         return { data: null, error: null };
@@ -207,6 +242,7 @@
           changed.push({ new: updated, old: r });
           return updated;
         });
+        changed.forEach(c => registrarHistorico(db, this.table, 'UPDATE', c.new, c.old));
         saveDb(db);
         changed.forEach(c => emit(this.table, 'UPDATE', c.new, c.old));
         return { data: null, error: null };
@@ -216,6 +252,7 @@
         window.__mockStats.writes += 1;
         const removed = db[this.table].filter(matches);
         db[this.table] = db[this.table].filter(r => !matches(r));
+        removed.forEach(r => registrarHistorico(db, this.table, 'DELETE', {}, r));
         saveDb(db);
         removed.forEach(r => emit(this.table, 'DELETE', {}, r));
         return { data: null, error: null };
@@ -237,6 +274,25 @@
         return ch;
       },
       removeChannel(ch) { if (ch) { ch.subscribed = false; channels.delete(ch); } return Promise.resolve('ok'); },
+      async rpc(name, params) {
+        await delay(LATENCY_MS);
+        if (!navigator.onLine || window.__mockOffline) return { data: null, error: { message: 'TypeError: Failed to fetch' } };
+        const db = loadDb();
+        const user = currentUser();
+        if (!user) return { data: null, error: { message: 'JWT expired', status: 401 } };
+        if (name === 'apagar_tudo_da_casa') {
+          const eu = db.membros.find(m => m.user_id === user.id);
+          if (!eu || eu.papel !== 'admin') return { data: null, error: { message: 'Só o administrador da casa pode apagar tudo.', code: 'P0001' } };
+          const casa = eu.casa_id;
+          const conta = (t) => db[t].filter(r => r.casa_id === casa).length;
+          const resultado = { lancamentos: conta('lancamentos'), metas: conta('metas'), orcamentos: conta('orcamentos') };
+          ['lancamentos', 'metas', 'orcamentos', 'historico'].forEach(t => { db[t] = (db[t] || []).filter(r => r.casa_id !== casa); });
+          db.historico.push({ id: ++historicoSeq, casa_id: casa, user_id: user.id, acao: 'apagou tudo', tabela: 'casa', item_id: null, descricao: `${resultado.lancamentos} lançamentos, ${resultado.metas} metas`, valor: null, criado_em: now() });
+          saveDb(db);
+          return { data: resultado, error: null };
+        }
+        return { data: null, error: { message: `Could not find the function public.${name}`, code: 'PGRST202', status: 404 } };
+      },
       auth: {
         onAuthStateChange(cb) {
           authListeners.add(cb);
@@ -247,12 +303,34 @@
         async signInWithPassword({ email, password }) {
           await delay(LATENCY_MS);
           if (!navigator.onLine || window.__mockOffline) return { data: {}, error: { message: 'TypeError: Failed to fetch' } };
-          const u = USERS.find(x => x.email === String(email).toLowerCase() && x.password === password);
+          const u = loadUsers().find(x => x.email === String(email).toLowerCase() && x.password === password);
           if (!u) return { data: { user: null, session: null }, error: { message: 'Invalid login credentials' } };
           const session = { user: { id: u.id, email: u.email }, access_token: 'mock' };
           setSession(session);
           setTimeout(() => fireAuth('SIGNED_IN', session), 0);
           return { data: session, error: null };
+        },
+        async signUp({ email, password, options }) {
+          await delay(LATENCY_MS);
+          if (!navigator.onLine || window.__mockOffline) return { data: {}, error: { message: 'TypeError: Failed to fetch' } };
+          const mail = String(email || '').toLowerCase();
+          if (loadUsers().some(x => x.email === mail)) return { data: { user: null, session: null }, error: { message: 'User already registered', status: 422 } };
+          if (String(password || '').length < 6) return { data: {}, error: { message: 'Password should be at least 6 characters', status: 422 } };
+          const db = loadDb();
+          const conv = (db.convites || []).find(c => c.email === mail && !c.usado_em);
+          if (!conv && db.membros.length) return { data: { user: null, session: null }, error: { message: 'Database error saving new user', status: 500 } };
+          const id = `u${Date.now().toString(36)}`;
+          const nome = (options && options.data && options.data.name) || mail.split('@')[0];
+          addUser({ id, email: mail, password, nome, cor: '#00bcd4', papel: conv ? 'membro' : 'admin' });
+          const membro = { user_id: id, casa_id: conv ? conv.casa_id : CASA, nome, cor: '#00bcd4', foto: null, papel: conv ? 'membro' : 'admin', created_at: now(), updated_at: now() };
+          db.membros.push(membro);
+          if (conv) { conv.usado_por = id; conv.usado_em = now(); }
+          saveDb(db);
+          emit('membros', 'INSERT', membro, {});
+          const session = { user: { id, email: mail }, access_token: 'mock' };
+          setSession(session);
+          setTimeout(() => fireAuth('SIGNED_IN', session), 0);
+          return { data: { user: session.user, session }, error: null };
         },
         async signOut() { await delay(5); setSession(null); setTimeout(() => fireAuth('SIGNED_OUT', null), 0); return { error: null }; },
         async updateUser({ password }) { await delay(5); window.__mockLastPassword = password; return { data: { user: currentUser() }, error: null }; },

@@ -947,3 +947,6 @@
 .toast.info svg { color: #ffb300; }
 .cursor-pointer { cursor: pointer; }
 .auth-status { white-space: pre-line; }
+
+.member-btn { width: 34px; height: 34px; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid rgba(0, 180, 160, 0.18); background: rgba(0, 180, 160, 0.10); color: #7fe6d7; font-size: 18px; line-height: 1; cursor: pointer; flex-shrink: 0; }
+.member-btn.danger { border-color: rgba(255, 82, 82, 0.18); background: rgba(255, 82, 82, 0.08); color: #ff9b9b; }

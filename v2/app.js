@@ -13,7 +13,7 @@
 const CONFIG = window.GPLAN_CONFIG || {};
 const SUPABASE_URL = String(CONFIG.supabaseUrl || '').trim();
 const SUPABASE_KEY = String(CONFIG.supabaseKey || '').trim();
-const APP_VERSION = '5.0.0';
+const APP_VERSION = '5.1.0';
 const PAGE_SIZE = 1000;
 const RECORRENCIA_MESES = 12;
 const LS_NOTIF = 'gplan2:avisos';
@@ -69,6 +69,8 @@ const State = {
   accounts: DEFAULT_ACCOUNTS.map(a => ({ ...a })),
   budgets: emptyBudgets(),
   members: [],
+  historico: [],
+  convites: [],
   casa: { id: null, nome: CONFIG.nomeDaCasa || 'Nossa casa' },
   profile: { name: '', email: '', photo: null, color: '#00b4a0' },
   categories: DEFAULT_CATEGORIES,
@@ -94,6 +96,7 @@ let realtimeStatus = 'off';
 let realtimeRetryTimer = null;
 let skipNextRealtimeReload = false; // logo após carregar tudo, a 1ª conexão não relê
 let cacheTimer = null;
+let historicoTimer = null;
 let queue = [];
 let flushing = false;
 let bootToken = 0;
@@ -307,7 +310,7 @@ function accountToRow(a) {
 }
 
 function memberFromRow(r) {
-  return { userId: r.user_id, nome: r.nome || 'Pessoa', cor: r.cor || '#00b4a0', foto: r.foto || null, updatedAt: r.updated_at || null };
+  return { userId: r.user_id, nome: r.nome || 'Pessoa', cor: r.cor || '#00b4a0', foto: r.foto || null, papel: r.papel === 'admin' ? 'admin' : 'membro', createdAt: r.created_at || null, updatedAt: r.updated_at || null };
 }
 
 function memberName(userId) {
@@ -352,6 +355,7 @@ function writeCacheNow() {
       transactions: State.transactions,
       goals: State.goals,
       budgets: State.budgets,
+      historico: State.historico,
       lastCloudReadAt
     }));
   } catch (error) {
@@ -373,10 +377,14 @@ function loadCache() {
     State.transactions = sortTransactionsByDateDesc(data.transactions);
     State.goals = Array.isArray(data.goals) ? data.goals : [];
     State.budgets = { ...emptyBudgets(), ...(data.budgets || {}) };
+    State.historico = Array.isArray(data.historico) ? data.historico : [];
     lastCloudReadAt = data.lastCloudReadAt || null;
     cacheSavedAt = data.savedAt || null;
     const mine = State.members.find(m => m.userId === me.id);
-    if (mine) applyMemberToProfile(mine);
+    if (mine) {
+      applyMemberToProfile(mine);
+      if (!myMember) myMember = { user_id: mine.userId, casa_id: casaId, papel: mine.papel, nome: mine.nome };
+    }
     return true;
   } catch (error) {
     console.warn('Cópia local ilegível:', error);
@@ -448,6 +456,8 @@ async function execOp(op) {
       return withTimeout(table.delete().eq(op.column, op.value).eq('casa_id', casaId), 20000, 'Tempo esgotado ao excluir.');
     case 'update':
       return withTimeout(table.update(op.patch).match(op.match), 20000, 'Tempo esgotado ao atualizar.');
+    case 'deleteMatch':
+      return withTimeout(table.delete().match(op.match), 20000, 'Tempo esgotado ao excluir.');
     default:
       return { error: { message: `Operação desconhecida: ${op.kind}` } };
   }
@@ -601,6 +611,7 @@ function updateAuthConnectivityState() {
 
 function openLoginScreen(statusText = '') {
   showShell('auth');
+  setAuthMode('login');
   updateAuthConnectivityState();
   if (statusText) safeSetText('auth-status', statusText);
   const emailInput = document.getElementById('auth-email');
@@ -698,6 +709,8 @@ function resetSessionState() {
   State.accounts = DEFAULT_ACCOUNTS.map(a => ({ ...a }));
   State.budgets = emptyBudgets();
   State.members = [];
+  State.historico = [];
+  State.convites = [];
   State.profile = { name: '', email: '', photo: null, color: '#00b4a0' };
   realtimeStatus = 'off';
   cloudLegacyCandidate = null;
@@ -839,8 +852,12 @@ async function bootstrapSession(user) {
     await flushQueue();
     if (token !== bootToken) return;
     handleStartupShortcuts();
-    offerLegacyImport(false);
+    fetchHistorico();
+    if (souAdmin()) fetchConvites();
+    await offerLegacyImport(false);
+    if (token !== bootToken) return;
     remindDueBills();
+    maybeAskName();
   } catch (error) {
     if (token !== bootToken) return;
     console.error('Falha ao carregar a nuvem:', error);
@@ -935,7 +952,7 @@ function subscribeRealtime() {
   if (!client || !casaId) return;
   teardownRealtime();
   channel = client.channel(`casa-${casaId}`);
-  ['lancamentos', 'metas', 'contas', 'orcamentos', 'membros'].forEach(table => {
+  ['lancamentos', 'metas', 'contas', 'orcamentos', 'membros', 'historico'].forEach(table => {
     channel.on('postgres_changes', { event: '*', schema: 'public', table, filter: `casa_id=eq.${casaId}` }, payload => onRealtime(table, payload));
   });
   channel.subscribe((status) => {
@@ -1024,14 +1041,27 @@ function onRealtime(table, payload) {
       else State.budgets[row.category] = round2(row.amount);
       break;
     }
+    case 'historico': {
+      if (eventType !== 'INSERT') return;
+      State.historico = [historicoFromRow(row), ...State.historico.filter(h => h.id !== String(row.id))].slice(0, 40);
+      renderHistorico();
+      saveCache();
+      return; // o próprio lançamento já gera o aviso
+    }
     case 'membros': {
       if (eventType === 'DELETE') {
+        if (row.user_id === me?.id) {
+          showToast('Você foi tirado desta casa pelo administrador.', 'error', 6000);
+          setTimeout(() => logout(), 1500);
+          return;
+        }
         State.members = State.members.filter(m => m.userId !== row.user_id);
       } else {
         const member = memberFromRow(row);
         const idx = State.members.findIndex(m => m.userId === member.userId);
         if (idx > -1) State.members[idx] = member; else State.members.push(member);
-        if (member.userId === me?.id) applyMemberToProfile(member);
+        if (member.userId === me?.id) { applyMemberToProfile(member); myMember = { ...(myMember || {}), ...row }; }
+        if (eventType === 'INSERT' && souAdmin()) fetchConvites(); // alguém entrou: o convite deixou de estar pendente
       }
       break;
     }
@@ -1565,6 +1595,8 @@ function renderAll() {
   renderSettingsAccounts();
   renderBudgetSettings();
   renderMembers();
+  renderCasaPanel();
+  renderHistorico();
   renderDataHealthPanel();
   updateAllAvatars();
   updateDueAlerts();
@@ -2148,18 +2180,32 @@ function renderBudgetSettings() {
     </div>`).join('');
 }
 
+const PENCIL_SVG = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>';
+
 function renderMembers() {
   const container = document.getElementById('casa-members');
   if (!container) return;
   if (!State.members.length) { container.innerHTML = '<div class="admin-empty">Ainda não carregou quem está na casa.</div>'; return; }
-  container.innerHTML = State.members.map(m => `
+  const admin = souAdmin();
+  container.innerHTML = State.members.map(m => {
+    const isMe = m.userId === me?.id;
+    const badges = `${isMe ? ' <span class="member-you">você</span>' : ''}${m.papel === 'admin' ? ' <span class="member-you">administrador</span>' : ''}`;
+    const id = escapeJsString(m.userId);
+    const actions = (admin || isMe) ? `
+      <div class="auth-quick-actions">
+        <button type="button" class="member-btn" title="Renomear" aria-label="Renomear" onclick="renameMember('${id}')">${PENCIL_SVG}</button>
+        ${admin && !isMe ? `<button type="button" class="member-btn danger" title="Tirar da casa" aria-label="Tirar da casa" onclick="removeMember('${id}')">×</button>` : ''}
+      </div>` : '';
+    return `
     <div class="member-item">
       <div class="member-avatar" style="background:${escapeHtml(m.cor)}">${m.foto ? `<img src="${m.foto}" alt="">` : escapeHtml(initialsOf(m.nome))}</div>
-      <div class="min-w-0">
-        <div class="member-name">${escapeHtml(m.nome)}${m.userId === me?.id ? ' <span class="member-you">você</span>' : ''}</div>
-        <div class="member-meta">${m.userId === me?.id ? escapeHtml(me?.email || '') : 'Compartilha esta casa'}</div>
+      <div class="min-w-0 flex-1">
+        <div class="member-name">${escapeHtml(m.nome)}${badges}</div>
+        <div class="member-meta">${isMe ? escapeHtml(me?.email || '') : 'Compartilha esta casa'}</div>
       </div>
-    </div>`).join('');
+      ${actions}
+    </div>`;
+  }).join('');
 }
 
 function renderColorSwatches(containerId, selected, onPickName) {
@@ -2200,7 +2246,11 @@ function loadProfileToSettings() {
 function switchSettingsTab(tab = 'profile', { scroll = true } = {}) {
   activeSettingsTab = tab;
   document.querySelectorAll('[data-settings-tab]').forEach(btn => btn.classList.toggle('active', btn.dataset.settingsTab === tab));
-  document.querySelectorAll('[data-settings-panel]').forEach(panel => panel.classList.toggle('hidden', panel.dataset.settingsPanel !== tab));
+  document.querySelectorAll('[data-settings-panel]').forEach(panel => {
+    const show = panel.dataset.settingsPanel === tab && (!panel.hasAttribute('data-admin-only') || souAdmin());
+    panel.classList.toggle('hidden', !show);
+  });
+  if (tab === 'casa') { renderCasaPanel(); fetchHistorico(); if (souAdmin()) fetchConvites(); }
   if (scroll && !document.getElementById('page-settings')?.classList.contains('hidden')) document.querySelector('#page-settings .settings-tabs')?.scrollIntoView({ block: 'nearest' });
 }
 
@@ -2840,6 +2890,304 @@ async function changeCurrentPassword(event = null, source = 'settings') {
   }
 }
 
+
+// ---------------------------------------------------------------------
+// Casa: administrador, convites, atividade, pergunta do nome
+// ---------------------------------------------------------------------
+function souAdmin() {
+  return myMember?.papel === 'admin';
+}
+
+function askText({ title = 'Informe', message = '', value = '', placeholder = '', okLabel = 'Salvar', type = 'text', maxLength = 60 } = {}) {
+  return new Promise((resolve) => {
+    const modal = document.getElementById('modal-prompt');
+    const form = document.getElementById('prompt-form');
+    const input = document.getElementById('prompt-input');
+    const cancel = document.getElementById('prompt-cancel');
+    if (!modal || !form || !input || !cancel) { resolve(null); return; }
+    safeSetText('prompt-title', title);
+    safeSetText('prompt-message', message);
+    safeSetText('prompt-ok', okLabel);
+    input.type = type;
+    input.value = value;
+    input.placeholder = placeholder;
+    input.maxLength = maxLength;
+    const finish = (result) => {
+      modal.classList.remove('active');
+      form.onsubmit = null;
+      cancel.onclick = null;
+      modal.onclick = null;
+      syncBodyLock();
+      resolve(result);
+    };
+    form.onsubmit = (event) => { event.preventDefault(); finish(input.value.trim()); };
+    cancel.onclick = () => finish(null);
+    modal.onclick = (event) => { if (event.target === modal) finish(null); };
+    modal.classList.add('active');
+    syncBodyLock();
+    setTimeout(() => input.focus(), 120);
+  });
+}
+
+function renderCasaPanel() {
+  const admin = souAdmin();
+  document.getElementById('casa-nome-form')?.classList.toggle('hidden', !admin);
+  safeSetText('casa-papel', admin ? 'Você é o administrador' : 'Quem compartilha');
+  safeSetText('casa-members-hint', admin
+    ? 'Toque no lápis para renomear alguém ou no × para tirar da casa. Para trazer mais gente, use "Convidar pessoa".'
+    : 'Só o administrador da casa convida ou remove pessoas. Você pode mudar o seu nome em Perfil.');
+  const input = document.getElementById('casa-nome-input');
+  if (input && document.activeElement !== input) input.value = State.casa.nome || '';
+  renderConvites();
+}
+
+async function saveCasaName() {
+  if (!souAdmin()) { showToast('Só o administrador muda o nome da casa.', 'error'); return; }
+  const nome = (document.getElementById('casa-nome-input')?.value || '').trim();
+  if (!nome) { showToast('Digite um nome para a casa.', 'error'); return; }
+  State.casa.nome = nome;
+  renderAll();
+  enqueue({ table: 'casas', kind: 'update', match: { id: casaId }, patch: { nome } });
+  showToast('Nome da casa salvo.');
+}
+
+async function renameMember(userId) {
+  const member = State.members.find(m => m.userId === userId);
+  if (!member) return;
+  if (userId !== me?.id && !souAdmin()) { showToast('Só o administrador renomeia outra pessoa.', 'error'); return; }
+  const nome = await askText({ title: 'Nome da pessoa', message: 'Como essa pessoa deve aparecer nos lançamentos?', value: member.nome, placeholder: 'Nome', maxLength: 40 });
+  if (!nome) return;
+  member.nome = nome;
+  if (userId === me?.id) { State.profile.name = nome; if (myMember) myMember.nome = nome; const input = document.getElementById('settings-name'); if (input) input.value = nome; }
+  renderAll();
+  enqueue({ table: 'membros', kind: 'update', match: { user_id: userId }, patch: { nome } });
+  showToast('Nome atualizado.');
+}
+
+async function removeMember(userId) {
+  if (!souAdmin() || userId === me?.id) return;
+  const member = State.members.find(m => m.userId === userId);
+  if (!member) return;
+  const ok = await askConfirm({ title: 'Tirar da casa?', message: `${member.nome} deixa de ver e de lançar nesta casa. O que essa pessoa já lançou continua.`, okLabel: 'Tirar da casa', danger: true });
+  if (!ok) return;
+  State.members = State.members.filter(m => m.userId !== userId);
+  renderAll();
+  enqueue({ table: 'membros', kind: 'deleteMatch', match: { user_id: userId } });
+  showToast(`${member.nome} saiu da casa.`);
+}
+
+async function fetchConvites() {
+  if (!client || !casaId || !souAdmin() || offlineMode || !navigator.onLine) return;
+  try {
+    const { data, error } = await withTimeout(
+      client.from('convites').select('*').eq('casa_id', casaId).order('criado_em', { ascending: false }),
+      15000,
+      'Tempo esgotado ao ler os convites.'
+    );
+    if (error) throw error;
+    State.convites = (data || []).map(c => ({ email: c.email, usadoEm: c.usado_em || null, criadoEm: c.criado_em || null }));
+    renderConvites();
+  } catch (error) {
+    console.warn('Convites indisponíveis:', error);
+  }
+}
+
+function renderConvites() {
+  const container = document.getElementById('casa-convites');
+  if (!container) return;
+  const pendentes = State.convites.filter(c => !c.usadoEm);
+  if (!pendentes.length) { container.innerHTML = '<div class="admin-empty">Nenhum convite pendente.</div>'; return; }
+  container.innerHTML = pendentes.map(c => `
+    <div class="member-item">
+      <div class="member-avatar" style="background:#1a3649">@</div>
+      <div class="min-w-0 flex-1">
+        <div class="member-name">${escapeHtml(c.email)}</div>
+        <div class="member-meta">Esperando a pessoa criar a conta no app</div>
+      </div>
+      <button type="button" class="member-btn danger" title="Cancelar convite" aria-label="Cancelar convite" onclick="removeInvite('${escapeJsString(c.email)}')">×</button>
+    </div>`).join('');
+}
+
+function inviteMember() {
+  if (!souAdmin()) { showToast('Só o administrador convida.', 'error'); return; }
+  const input = document.getElementById('convite-email');
+  const email = normalizeEmail(input?.value);
+  if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { showToast('Digite um e-mail válido.', 'error'); return; }
+  State.convites = [{ email, usadoEm: null, criadoEm: new Date().toISOString() }, ...State.convites.filter(c => c.email !== email)];
+  renderConvites();
+  enqueue({ table: 'convites', kind: 'upsert', rows: [{ email, casa_id: casaId }], onConflict: 'email' });
+  if (input) input.value = '';
+  showToast(`Convite registrado para ${email}. Agora é só a pessoa criar a conta no app com esse e-mail.`, 'success', 6000);
+}
+
+function removeInvite(email) {
+  State.convites = State.convites.filter(c => c.email !== email);
+  renderConvites();
+  enqueue({ table: 'convites', kind: 'deleteMatch', match: { email, casa_id: casaId } });
+  showToast('Convite cancelado.');
+}
+
+function historicoFromRow(r) {
+  return { id: String(r.id), userId: r.user_id || null, acao: r.acao || '', tabela: r.tabela || '', itemId: r.item_id || '', descricao: r.descricao || '', valor: r.valor == null ? null : round2(r.valor), criadoEm: r.criado_em || null };
+}
+
+function describeHistorico(h) {
+  const quem = h.userId ? memberName(h.userId) : 'alguém';
+  const nome = quem === 'você' ? 'Você' : quem;
+  const verbos = {
+    criou: 'lançou', alterou: 'alterou', excluiu: 'excluiu', pagou: 'marcou como pago', reabriu: 'voltou para pendente',
+    'criou meta': 'criou a meta', 'alterou meta': 'atualizou a meta', 'excluiu meta': 'excluiu a meta', 'apagou tudo': 'apagou todos os dados da casa'
+  };
+  const valor = h.valor != null && h.acao !== 'apagou tudo' ? ` · ${formatMoney(h.valor)}` : '';
+  const tom = h.acao.startsWith('excluiu') || h.acao === 'apagou tudo' ? 'danger' : h.acao === 'alterou' || h.acao === 'reabriu' ? 'warn' : '';
+  return { titulo: `${nome} ${verbos[h.acao] || h.acao}`, detalhe: h.descricao ? `${h.descricao}${valor}` : '', tom };
+}
+
+function renderHistorico() {
+  const container = document.getElementById('casa-historico');
+  if (!container) return;
+  if (!State.historico.length) { container.innerHTML = '<div class="admin-empty">Nenhuma atividade registrada ainda.</div>'; return; }
+  container.innerHTML = State.historico.slice(0, 40).map(h => {
+    const d = describeHistorico(h);
+    const quando = h.criadoEm ? new Date(h.criadoEm).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+    return `
+      <div class="admin-audit-item">
+        <span class="admin-audit-dot ${d.tom}"></span>
+        <div class="min-w-0">
+          <div class="admin-audit-title">${escapeHtml(d.titulo)}</div>
+          ${d.detalhe ? `<div class="admin-audit-meta">${escapeHtml(d.detalhe)}</div>` : ''}
+        </div>
+        <div class="admin-audit-time">${escapeHtml(quando)}</div>
+      </div>`;
+  }).join('');
+}
+
+async function fetchHistorico(manual = false) {
+  if (!client || !casaId || offlineMode || !navigator.onLine) return;
+  try {
+    const { data, error } = await withTimeout(
+      client.from('historico').select('*').eq('casa_id', casaId).order('criado_em', { ascending: false }).limit(40),
+      15000,
+      'Tempo esgotado ao ler a atividade.'
+    );
+    if (error) throw error;
+    State.historico = (data || []).map(historicoFromRow);
+    renderHistorico();
+    saveCache();
+    if (manual) { if (souAdmin()) fetchConvites(); showToast('Atividade atualizada.'); }
+  } catch (error) {
+    console.warn('Atividade indisponível:', error);
+    const container = document.getElementById('casa-historico');
+    if (container && !State.historico.length) container.innerHTML = '<div class="admin-empty">Atividade indisponível. Rode o arquivo supabase_v2_1_casa.sql no Supabase.</div>';
+  }
+}
+
+async function clearHouseData() {
+  if (!souAdmin()) { showToast('Só o administrador pode apagar tudo.', 'error'); return; }
+  if (!client || !navigator.onLine || offlineMode) { showToast('Precisa de internet para apagar tudo.', 'error'); return; }
+  const typed = await askText({
+    title: 'Apagar todos os dados da casa',
+    message: `Isso apaga ${State.transactions.length} lançamentos, ${State.goals.length} metas e os orçamentos, para todo mundo, sem volta. Para confirmar, digite APAGAR.`,
+    placeholder: 'APAGAR',
+    okLabel: 'Apagar tudo',
+    maxLength: 10
+  });
+  if (typed == null) return;
+  if (typed.toUpperCase() !== 'APAGAR') { showToast('Não apaguei nada: a palavra não confere.', 'error'); return; }
+  try {
+    const { data, error } = await withTimeout(client.rpc('apagar_tudo_da_casa'), 30000, 'Tempo esgotado ao apagar.');
+    if (error) throw error;
+    queue = queue.filter(op => !['lancamentos', 'metas', 'orcamentos'].includes(op.table));
+    saveQueue();
+    State.transactions = [];
+    State.goals = [];
+    State.budgets = emptyBudgets();
+    saveCache();
+    renderAll();
+    fetchHistorico();
+    showToast(`Tudo apagado: ${data?.lancamentos ?? 0} lançamentos e ${data?.metas ?? 0} metas.`, 'success', 6000);
+  } catch (error) {
+    showToast(`Não consegui apagar: ${error?.message || error}`, 'error', 6000);
+  }
+}
+
+function setAuthMode(mode = 'login') {
+  const signup = mode === 'signup';
+  document.getElementById('auth-form')?.classList.toggle('hidden', signup);
+  document.getElementById('auth-signup-toggle')?.classList.toggle('hidden', signup);
+  document.getElementById('signup-form')?.classList.toggle('hidden', !signup);
+  safeSetText('auth-subtitle', signup ? 'Crie sua conta com o e-mail que recebeu o convite.' : 'Use o e-mail e a senha da sua conta.');
+  safeSetText('auth-status', '');
+  if (signup) setTimeout(() => document.getElementById('signup-name')?.focus(), 80);
+}
+
+function friendlySignupError(error) {
+  const message = String(error?.message || error || '');
+  if (/database error/i.test(message)) return 'Este e-mail não foi convidado para a casa. Peça ao administrador para convidar e tente de novo.';
+  if (/already registered|already exists|already been registered/i.test(message)) return 'Este e-mail já tem conta. Toque em "Já tenho conta" e entre.';
+  if (/signups? not allowed|signup is disabled/i.test(message)) return 'O cadastro está desligado no Supabase. O administrador precisa ligar "Allow new users to sign up".';
+  if (/password/i.test(message)) return 'A senha precisa ter pelo menos 6 caracteres.';
+  return friendlyAuthError(error);
+}
+
+async function submitSignup(event) {
+  event?.preventDefault?.();
+  const c = ensureClient();
+  if (!c) return;
+  if (!navigator.onLine) { safeSetText('auth-status', 'Sem internet no momento. Conecte-se para criar a conta.'); return; }
+  const name = (document.getElementById('signup-name')?.value || '').trim();
+  const email = normalizeEmail(document.getElementById('signup-email')?.value);
+  const password = document.getElementById('signup-password')?.value || '';
+  const confirm = document.getElementById('signup-confirm')?.value || '';
+  if (!name) { safeSetText('auth-status', 'Digite seu nome.'); return; }
+  if (!email) { safeSetText('auth-status', 'Digite o e-mail que recebeu o convite.'); return; }
+  if (password.length < 6) { safeSetText('auth-status', 'A senha precisa ter pelo menos 6 caracteres.'); return; }
+  if (password !== confirm) { safeSetText('auth-status', 'As senhas não conferem.'); return; }
+  const button = document.getElementById('signup-submit-btn');
+  if (button) button.disabled = true;
+  safeSetText('auth-status', 'Criando sua conta...');
+  try {
+    const { data, error } = await withTimeout(
+      c.auth.signUp({ email, password, options: { data: { name }, emailRedirectTo: `${location.origin}${location.pathname}` } }),
+      25000,
+      'Tempo esgotado ao criar a conta.'
+    );
+    if (error) throw error;
+    if (data?.session?.user) { safeSetText('auth-status', 'Conta criada. Entrando...'); return; } // SIGNED_IN cuida do resto
+    setAuthMode('login');
+    const emailInput = document.getElementById('auth-email');
+    if (emailInput) emailInput.value = email;
+    safeSetText('auth-status', `Conta criada. Confirme pelo link que enviamos para ${email} e depois entre aqui.`);
+  } catch (error) {
+    safeSetText('auth-status', friendlySignupError(error));
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function maybeAskName() {
+  if (!me || !myMember) return;
+  const prefix = normalizeEmail(me.email).split('@')[0];
+  if (!prefix || myMember.nome !== prefix) return; // nome ainda é o pedaço do e-mail
+  const key = `gplan2:nome_perguntado:${me.id}`;
+  try {
+    if (localStorage.getItem(key)) return;
+    localStorage.setItem(key, '1');
+  } catch (_) { /* ok */ }
+  const sugestao = prefix.charAt(0).toUpperCase() + prefix.slice(1);
+  const nome = await askText({ title: 'Como você quer aparecer?', message: 'Esse nome aparece nos lançamentos para a outra pessoa. Dá para mudar depois em Configurações, Perfil.', value: sugestao, placeholder: 'Seu nome', maxLength: 40 });
+  if (!nome) return;
+  State.profile.name = nome;
+  myMember.nome = nome;
+  const mine = State.members.find(m => m.userId === me.id);
+  if (mine) mine.nome = nome;
+  const input = document.getElementById('settings-name');
+  if (input) input.value = nome;
+  renderAll();
+  enqueue({ table: 'membros', kind: 'update', match: { user_id: me.id }, patch: { nome } });
+  showToast('Nome salvo!');
+}
+
 // ---------------------------------------------------------------------
 // Início
 // ---------------------------------------------------------------------
@@ -2932,5 +3280,6 @@ document.addEventListener('DOMContentLoaded', () => {
     closeModalGoalAdd();
     closeDeleteModal();
     closeModalAccount();
+    document.getElementById('prompt-cancel')?.click();
   });
 });

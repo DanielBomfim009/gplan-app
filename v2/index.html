@@ -73,6 +73,29 @@
           <button type="submit" id="auth-submit-btn" class="w-full py-3.5 bg-brand text-white font-semibold rounded-xl hover:bg-brand-light transition-colors">Entrar</button>
           <button type="button" id="auth-forgot-btn" class="w-full py-2 text-xs text-[#86a8b7] hover:text-white transition-colors" onclick="forgotPassword()">Esqueci minha senha</button>
         </form>
+        <button type="button" id="auth-signup-toggle" class="w-full py-2 text-xs text-[#86a8b7] hover:text-white transition-colors" onclick="setAuthMode('signup')">Criar conta com convite</button>
+
+        <form id="signup-form" class="space-y-4 hidden" onsubmit="submitSignup(event)">
+          <div class="access-summary-box">Só entra quem foi convidado pelo administrador da casa. Use o mesmo e-mail do convite.</div>
+          <div>
+            <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Seu nome</label>
+            <input type="text" id="signup-name" class="input-styled" placeholder="Como quer aparecer" required maxlength="40" autocomplete="name">
+          </div>
+          <div>
+            <label class="text-xs text-[#6b8a99] font-medium mb-2 block">E-mail</label>
+            <input type="email" id="signup-email" class="input-styled" placeholder="o e-mail do convite" required autocomplete="username">
+          </div>
+          <div>
+            <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Senha</label>
+            <input type="password" id="signup-password" class="input-styled" placeholder="Mínimo 6 caracteres" minlength="6" required autocomplete="new-password">
+          </div>
+          <div>
+            <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Confirmar senha</label>
+            <input type="password" id="signup-confirm" class="input-styled" placeholder="Digite de novo" minlength="6" required autocomplete="new-password">
+          </div>
+          <button type="submit" id="signup-submit-btn" class="w-full py-3.5 bg-brand text-white font-semibold rounded-xl hover:bg-brand-light transition-colors">Criar minha conta</button>
+          <button type="button" class="w-full py-2 text-xs text-[#86a8b7] hover:text-white transition-colors" onclick="setAuthMode('login')">Já tenho conta</button>
+        </form>
 
         <div id="auth-status" class="auth-status"></div>
       </div>
@@ -831,11 +854,43 @@
       <div class="card mt-4 hidden" data-settings-panel="casa">
         <div class="section-header">
           <h2 class="section-title" id="casa-nome">Nossa casa</h2>
-          <span class="text-xs text-[#6b8a99]">Quem compartilha</span>
+          <span class="text-xs text-[#6b8a99]" id="casa-papel">Quem compartilha</span>
         </div>
         <div class="p-4 space-y-3">
+          <div id="casa-nome-form" class="hidden">
+            <label class="text-xs text-[#6b8a99] font-medium mb-2 block">Nome da casa</label>
+            <div class="flex gap-2">
+              <input type="text" id="casa-nome-input" class="input-styled" placeholder="Ex: Nossa casa" maxlength="40">
+              <button type="button" class="admin-secondary-btn" style="width:auto; flex-shrink:0" onclick="saveCasaName()">Salvar</button>
+            </div>
+          </div>
           <div id="casa-members" class="member-list"></div>
-          <div class="text-xs text-[#86a8b7] leading-5">Para adicionar outra pessoa, crie o usuário dela no Supabase (Authentication, Users, Add user). Ela entra na casa sozinha.</div>
+          <div class="text-xs text-[#86a8b7] leading-5" id="casa-members-hint"></div>
+        </div>
+      </div>
+
+      <div id="casa-convites-card" class="card mt-4 hidden" data-settings-panel="casa" data-admin-only>
+        <div class="section-header">
+          <h2 class="section-title">Convidar pessoa</h2>
+          <span class="text-xs text-[#6b8a99]">Só o administrador</span>
+        </div>
+        <div class="p-4 space-y-3">
+          <div class="text-xs text-[#86a8b7] leading-5">Digite o e-mail da pessoa. Depois ela abre o aplicativo, toca em "Criar conta com convite" e usa esse mesmo e-mail.</div>
+          <div class="flex gap-2">
+            <input type="email" id="convite-email" class="input-styled" placeholder="email@exemplo.com" autocomplete="off">
+            <button type="button" class="admin-secondary-btn" style="width:auto; flex-shrink:0" onclick="inviteMember()">Convidar</button>
+          </div>
+          <div id="casa-convites" class="member-list"></div>
+        </div>
+      </div>
+
+      <div class="card mt-4 hidden" data-settings-panel="casa">
+        <div class="section-header">
+          <h2 class="section-title">Atividade recente</h2>
+          <button type="button" id="historico-atualizar" class="text-xs font-semibold text-brand hover:text-brand-light transition-colors" onclick="fetchHistorico(true)">Atualizar</button>
+        </div>
+        <div class="p-4">
+          <div id="casa-historico" class="admin-audit-list"></div>
         </div>
       </div>
 
@@ -859,6 +914,14 @@
             <button onclick="syncNow()" class="settings-action-btn">Sincronizar agora</button>
             <button onclick="logout()" class="w-full p-3 rounded-xl bg-expense/10 hover:bg-expense/20 transition-colors text-expense font-semibold">Sair da conta</button>
           </div>
+        </div>
+      </div>
+
+      <div id="casa-perigo-card" class="card mt-4 hidden" data-settings-panel="casa" data-admin-only>
+        <div class="section-header"><h2 class="section-title">Zona de perigo</h2></div>
+        <div class="p-4 space-y-3">
+          <div class="text-xs text-[#86a8b7] leading-5">Apaga todos os lançamentos, metas e orçamentos da casa, para todo mundo. As contas e as pessoas ficam. Não tem volta.</div>
+          <button type="button" id="apagar-tudo-btn" onclick="clearHouseData()" class="w-full p-3 rounded-xl bg-expense/10 hover:bg-expense/20 transition-colors text-expense font-semibold">Apagar todos os dados da casa</button>
         </div>
       </div>
 
@@ -1139,6 +1202,21 @@
         <button type="button" class="delete-option-btn single" id="confirm-ok">Confirmar</button>
         <button type="button" class="delete-option-btn cancel" id="confirm-cancel">Cancelar</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Modal: pergunta com um campo de texto -->
+  <div id="modal-prompt" class="modal-overlay" style="z-index: 1255;">
+    <div class="modal-content">
+      <div class="modal-title-row">
+        <h2 class="font-display text-lg font-bold text-white" id="prompt-title">Informe</h2>
+      </div>
+      <form id="prompt-form" class="space-y-4">
+        <p class="text-sm text-[#9fc2ce] leading-6" id="prompt-message"></p>
+        <input type="text" id="prompt-input" class="input-styled" autocomplete="off">
+        <button type="submit" id="prompt-ok" class="w-full py-3.5 bg-brand text-white font-semibold rounded-xl hover:bg-brand-light transition-colors">Salvar</button>
+        <button type="button" id="prompt-cancel" class="delete-option-btn cancel">Cancelar</button>
+      </form>
     </div>
   </div>
 
