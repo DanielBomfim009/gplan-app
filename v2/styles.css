@@ -331,6 +331,7 @@
     .sidebar-profile-type { font-size: 11px; color: #6b8a99; }
     
     .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: linear-gradient(180deg, transparent 0%, #0d1f2d 20%); padding: 8px max(16px, var(--safe-right)) calc(16px + var(--safe-bottom)) max(16px, var(--safe-left)); z-index: 100; }
+    body.keyboard-open .bottom-nav, body.keyboard-open .fab { visibility: hidden; pointer-events: none; }
     .bottom-nav-inner { background: linear-gradient(145deg, #1a3649 0%, #132a3c 100%); border-radius: 20px; border: 1px solid rgba(0, 180, 160, 0.15); display: flex; justify-content: space-around; gap: 4px; padding: 8px; }
     .nav-item { display: flex; flex: 1; min-width: 0; flex-direction: column; align-items: center; gap: 4px; padding: 8px 10px; border-radius: 14px; cursor: pointer; color: #6b8a99; transition: all 0.2s; }
     .nav-item svg { width: 22px; height: 22px; }

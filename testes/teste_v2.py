@@ -627,6 +627,16 @@ def main():
         esperar_fila_vazia(page)
         checar(len(db(page).get("push_assinaturas", [])) == 0 and page.evaluate("window.__fakeSub") is None, "desligar retira o cadastro do aparelho e do banco")
 
+        print("\n== 20. Teclado do celular: barra de baixo some enquanto digita e volta ao fechar")
+        page.evaluate("openPage('dashboard')")
+        abrir_modal_tx(page)
+        page.focus("#tx-desc")
+        page.wait_for_function("document.body.classList.contains('keyboard-open')", timeout=3000)
+        checar(page.evaluate("getComputedStyle(document.getElementById('bottom-nav')).visibility") == "hidden" and page.evaluate("getComputedStyle(document.getElementById('fab')).visibility") == "hidden", "com um campo em edição, barra e botão + ficam escondidos")
+        page.evaluate("closeModalTx()")
+        page.wait_for_function("!document.body.classList.contains('keyboard-open')", timeout=3000)
+        checar(page.evaluate("document.activeElement === document.body") and page.evaluate("getComputedStyle(document.getElementById('bottom-nav')).visibility") == "visible", "fechar a janela solta o campo e a barra volta")
+
         print("\n== 16. Sair da conta limpa a tela")
         page.evaluate("openPage('settings')")
         page.click("[data-settings-tab='casa']")

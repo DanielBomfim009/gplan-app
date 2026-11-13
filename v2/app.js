@@ -261,6 +261,43 @@ function askConfirm({ title = 'Confirmar', message = '', okLabel = 'Confirmar', 
 function syncBodyLock() {
   const hasActiveLayer = document.querySelector('.modal-overlay.active') || document.querySelector('.sidebar.active');
   document.body.style.overflow = hasActiveLayer ? 'hidden' : '';
+  // Fechou a janela com um campo ainda em edição: solta o campo para o teclado do celular
+  // fechar junto (senão a tela fica encolhida e a barra de baixo "presa" no meio).
+  if (!hasActiveLayer && isTextField(document.activeElement)) document.activeElement.blur();
+}
+
+// Teclado do celular: enquanto um campo está em edição, a barra de baixo e o botão +
+// somem (ficariam flutuando no meio da tela, em cima do teclado). Ao fechar o teclado,
+// um empurrãozinho na rolagem faz o iPhone recolocar os elementos fixos no lugar.
+const isTextField = (el) => Boolean(el && el !== document.body && typeof el.matches === 'function'
+  && el.matches('input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=range]):not([type=file]), textarea, select, [contenteditable="true"]'));
+
+function setKeyboardOpen(open) {
+  const was = document.body.classList.contains('keyboard-open');
+  document.body.classList.toggle('keyboard-open', open);
+  if (was && !open) {
+    requestAnimationFrame(() => {
+      const y = window.scrollY;
+      window.scrollTo(window.scrollX, y + 1);
+      window.scrollTo(window.scrollX, Math.max(0, y));
+    });
+  }
+}
+
+function setupKeyboardWatch() {
+  document.addEventListener('focusin', (e) => { if (isTextField(e.target)) setKeyboardOpen(true); });
+  document.addEventListener('focusout', (e) => {
+    if (!isTextField(e.target)) return;
+    setTimeout(() => { if (!isTextField(document.activeElement)) setKeyboardOpen(false); }, 120);
+  });
+  if (window.visualViewport) {
+    const vv = window.visualViewport;
+    vv.addEventListener('resize', () => {
+      const base = Math.max(window.innerHeight, document.documentElement.clientHeight);
+      if (vv.height < base - 150) setKeyboardOpen(true);
+      else if (!isTextField(document.activeElement)) setKeyboardOpen(false);
+    });
+  }
 }
 
 // ---------------------------------------------------------------------
@@ -2759,7 +2796,8 @@ function openModalTx() {
   document.getElementById('delete-tx-btn')?.classList.add('hidden');
   modal.classList.add('active');
   syncBodyLock();
-  setTimeout(() => document.getElementById('tx-amount')?.focus(), 120);
+  // Foca o valor só se a pessoa ainda não tocou em outro campo (senão o cursor pulava de volta).
+  setTimeout(() => { if (!document.getElementById('form-tx')?.contains(document.activeElement)) document.getElementById('tx-amount')?.focus(); }, 120);
 }
 
 // Vencimento x pagamento ------------------------------------------------
@@ -3548,6 +3586,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (awayMs > 60000 && 'serviceWorker' in navigator) navigator.serviceWorker.getRegistration().then(r => r?.update()).catch(() => null); // procura versão nova
   });
   window.addEventListener('pagehide', flushCacheNow);
+  setupKeyboardWatch();
   setTimeout(hideSplash, 8000); // segurança: nunca deixar a tela de abertura presa
 
   if ('serviceWorker' in navigator) {
