@@ -264,6 +264,7 @@ function syncBodyLock() {
   // Fechou a janela com um campo ainda em edição: solta o campo para o teclado do celular
   // fechar junto (senão a tela fica encolhida e a barra de baixo "presa" no meio).
   if (!hasActiveLayer && isTextField(document.activeElement)) document.activeElement.blur();
+  if (!hasActiveLayer) settleFixedElements();
 }
 
 // Teclado do celular: enquanto um campo está em edição, a barra de baixo e o botão +
@@ -275,13 +276,26 @@ const isTextField = (el) => Boolean(el && el !== document.body && typeof el.matc
 function setKeyboardOpen(open) {
   const was = document.body.classList.contains('keyboard-open');
   document.body.classList.toggle('keyboard-open', open);
-  if (was && !open) {
-    requestAnimationFrame(() => {
-      const y = window.scrollY;
-      window.scrollTo(window.scrollX, y + 1);
-      window.scrollTo(window.scrollX, Math.max(0, y));
+  if (was && !open) settleFixedElements();
+}
+
+// iPhone: depois do teclado (ou da tela de entrada), a página pode ficar rolada além do
+// fim e os elementos fixos (barra de baixo, botão +) aparecem deslocados até alguém
+// arrastar a tela. Rola para uma posição válida e força o navegador a recolocá-los.
+function settleFixedElements() {
+  requestAnimationFrame(() => {
+    const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+    const y = Math.min(Math.max(0, window.scrollY), max);
+    window.scrollTo(window.scrollX, y > 0 ? y - 1 : 1);
+    window.scrollTo(window.scrollX, y);
+    ['bottom-nav', 'fab'].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.style.transform = 'translateZ(0)';
+      void el.offsetHeight; // obriga o navegador a recalcular a posição
+      el.style.transform = '';
     });
-  }
+  });
 }
 
 function setupKeyboardWatch() {
@@ -695,6 +709,7 @@ function showShell(which) {
   document.getElementById('bottom-nav')?.classList.toggle('hidden', !appVisible);
   document.getElementById('fab')?.classList.toggle('hidden', !appVisible);
   if (!appVisible) toggleSidebar(false);
+  else setTimeout(settleFixedElements, 60); // saiu da tela de entrada (teclado): barra no lugar
 }
 
 function updateAuthConnectivityState() {
@@ -2221,7 +2236,7 @@ function renderReports() {
   };
   breakdown('report-expenses-breakdown', 'expense', expense, 'Sem dados de despesas');
   breakdown('report-income-breakdown', 'income', income, 'Sem dados de receitas');
-  renderFluxo(monthTx);
+  renderFluxo();
 
   const budgetContainer = document.getElementById('report-budget-breakdown');
   if (budgetContainer) {
@@ -2245,10 +2260,15 @@ function renderReports() {
 let fluxoCarry = (() => { try { return localStorage.getItem('gplan2:fluxo_carry') === '1'; } catch (_) { return false; } })();
 let fluxoOpenDate = null;
 
+// No fluxo por data, a despesa entra no dia do VENCIMENTO (é quando a conta chega),
+// mesmo que o pagamento esteja marcado para depois; a receita entra no dia em que
+// o dinheiro chega (recebimento, ou a data prevista quando não há outra).
+const fluxoDate = (t) => (t.type === 'expense' ? (t.date || '') : effectiveDate(t));
+
 function buildDailyFlow(transactions, opening = 0) {
   const byDate = new Map();
   transactions.forEach(t => {
-    const key = effectiveDate(t);
+    const key = fluxoDate(t);
     if (!isDateInput(key)) return;
     if (!byDate.has(key)) byDate.set(key, []);
     byDate.get(key).push(t);
@@ -2275,14 +2295,15 @@ function toggleFluxoDate(key) {
   renderReports();
 }
 
-function renderFluxo(monthTx) {
+function renderFluxo() {
   const box = document.getElementById('report-fluxo');
   if (!box) return;
   const monthKey = getMonthKeyFromDate(State.reportCustomDate);
   const opening = fluxoCarry
-    ? round2(State.transactions.filter(t => effectiveDate(t) && effectiveDate(t).slice(0, 7) < monthKey).reduce((s, t) => s + (t.type === 'income' ? t.amount : -t.amount), 0))
+    ? round2(State.transactions.filter(t => isDateInput(fluxoDate(t)) && fluxoDate(t).slice(0, 7) < monthKey).reduce((s, t) => s + (t.type === 'income' ? t.amount : -t.amount), 0))
     : 0;
-  const rows = buildDailyFlow(monthTx, opening);
+  const monthRows = State.transactions.filter(t => isDateInput(fluxoDate(t)) && fluxoDate(t).slice(0, 7) === monthKey);
+  const rows = buildDailyFlow(monthRows, opening);
   const carryBtn = document.getElementById('fluxo-carry-btn');
   if (carryBtn) carryBtn.textContent = fluxoCarry ? 'Começar o mês do zero' : 'Trazer saldo dos meses anteriores';
   if (!rows.length) { box.innerHTML = '<p class="text-center text-sm text-[#6b8a99]">Sem lançamentos neste mês.</p>'; return; }
@@ -2300,7 +2321,7 @@ function renderFluxo(monthTx) {
       ? '<span class="fluxo-carry text-expense">falta: vai para a próxima data</span>'
       : (r.before < 0 ? '<span class="fluxo-carry text-brand">acumulado quitado</span>' : '');
     const items = open
-      ? `<div class="fluxo-items">${r.items.map(t => `<div class="fluxo-item"><span class="fluxo-item-desc">${escapeHtml(t.description)}${t.status === 'pending' ? ' <em>pendente</em>' : ''}${hasSeparatePayDate(t) ? ` <em>vence ${formatDayMonth(t.date)}</em>` : ''}</span><span class="${t.type === 'income' ? 'text-income' : 'text-expense'}">${t.type === 'income' ? '+' : '-'}${formatMoney(t.amount)}</span></div>`).join('')}</div>`
+      ? `<div class="fluxo-items">${r.items.map(t => `<div class="fluxo-item"><span class="fluxo-item-desc">${escapeHtml(t.description)}${t.status === 'pending' ? ' <em>pendente</em>' : ''}${hasSeparatePayDate(t) ? ` <em>${t.type === 'income' ? 'recebe' : 'paga'} em ${formatDayMonth(t.payDate)}</em>` : ''}</span><span class="${t.type === 'income' ? 'text-income' : 'text-expense'}">${t.type === 'income' ? '+' : '-'}${formatMoney(t.amount)}</span></div>`).join('')}</div>`
       : '';
     return `
       <div class="fluxo-row${open ? ' open' : ''}" data-fluxo-date="${r.key}">

@@ -303,11 +303,12 @@
       transform: translateX(-100%);
       transition: transform 0.3s ease;
       overflow-y: auto;
+      padding-bottom: var(--safe-bottom);
       border-right: 1px solid rgba(0, 180, 160, 0.1);
     }
     .sidebar.active { transform: translateX(0); }
     
-    .sidebar-header { padding: 20px; border-bottom: 1px solid rgba(0, 180, 160, 0.1); display: flex; align-items: center; justify-content: space-between; }
+    .sidebar-header { padding: max(20px, calc(var(--safe-top) + 12px)) 20px 20px; border-bottom: 1px solid rgba(0, 180, 160, 0.1); display: flex; align-items: center; justify-content: space-between; }
     .sidebar-logo { display: flex; align-items: center; gap: 12px; }
     .sidebar-logo-icon { width: 40px; height: 40px; background: linear-gradient(135deg, #00b4a0 0%, #008577 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 18px; overflow: hidden; }
     .sidebar-logo-icon img { width: 100%; height: 100%; object-fit: cover; }
