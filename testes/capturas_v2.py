@@ -1,7 +1,7 @@
 """Tira capturas de tela da versão 2 com o Supabase falso, para conferência visual.
 
 Uso:  python testes/capturas_v2.py [pasta_de_saida]
-Gera: entrar.png, painel.png, controle.png, transacoes.png, metas.png, config_casa.png, modal_lancamento.png
+Gera: entrar.png, painel.png, controle.png, transacoes.png, metas.png, relatorio_fluxo.png, avisos_na_tela.png, config_avisos.png, config_casa.png, modal_lancamento.png
 """
 import http.server
 import socketserver
@@ -103,6 +103,20 @@ def main():
         page.click("#modal-goal button[type=submit]")
         page.wait_for_timeout(400)
         page.screenshot(path=str(SAIDA / "metas.png"), full_page=True)
+
+        page.evaluate("openPage('reports'); switchReportTab('fluxo'); toggleFluxoDate(document.querySelector('#report-fluxo .fluxo-row')?.dataset.fluxoDate)")
+        page.wait_for_timeout(300)
+        page.screenshot(path=str(SAIDA / "relatorio_fluxo.png"), full_page=True)
+
+        page.evaluate("showToast('Mercado · R$ 120,00 · 05/12', 'info', 8000, { title: 'Maria lançou uma despesa' }); showUpdateToast()")
+        page.wait_for_timeout(400)
+        page.screenshot(path=str(SAIDA / "avisos_na_tela.png"))
+        page.evaluate("document.querySelectorAll('.toast').forEach(t => t.remove())")
+
+        page.evaluate("openPage('settings')")
+        page.click("[data-settings-tab='avisos']")
+        page.wait_for_timeout(300)
+        page.screenshot(path=str(SAIDA / "config_avisos.png"), full_page=True)
 
         page.evaluate("openPage('settings')")
         page.click("[data-settings-tab='casa']")

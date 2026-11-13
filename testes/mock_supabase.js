@@ -31,6 +31,7 @@
     metas: ['id', 'casa_id', 'title', 'category', 'deadline', 'target', 'current', 'archived', 'contributions', 'created_by', 'updated_by', 'created_at', 'updated_at'],
     contas: ['id', 'casa_id', 'name', 'type', 'color', 'position', 'created_by', 'updated_by', 'created_at', 'updated_at'],
     orcamentos: ['casa_id', 'category', 'amount', 'created_by', 'updated_by', 'created_at', 'updated_at'],
+    push_assinaturas: ['endpoint', 'user_id', 'casa_id', 'p256dh', 'auth', 'aparelho', 'created_at', 'updated_at'],
     user_states: ['user_id', 'app_state', 'updated_at']
   };
   // Colunas que o teste finge que ainda não existem (sessionStorage 'mock-sem-colunas' = {"tabela": ["coluna"]}).
@@ -64,14 +65,15 @@
       ],
       lancamentos: [],
       metas: [],
-      orcamentos: []
+      orcamentos: [],
+      push_assinaturas: []
     };
   }
 
   function loadDb() {
     try {
       const raw = localStorage.getItem(DB_KEY);
-      if (raw) return JSON.parse(raw);
+      if (raw) { const db = JSON.parse(raw); ['convites', 'historico', 'push_assinaturas'].forEach(t => { if (!db[t]) db[t] = []; }); return db; }
     } catch (_) { /* recria */ }
     const db = seed();
     localStorage.setItem(DB_KEY, JSON.stringify(db));
@@ -93,7 +95,7 @@
     authListeners.forEach(cb => { try { cb(event, session); } catch (e) { console.error('mock auth listener', e); } });
   }
 
-  function pk(table) { return table === 'orcamentos' ? ['casa_id', 'category'] : table === 'membros' ? ['user_id'] : ['id']; }
+  function pk(table) { return table === 'orcamentos' ? ['casa_id', 'category'] : table === 'membros' ? ['user_id'] : table === 'convites' ? ['email'] : table === 'push_assinaturas' ? ['endpoint'] : ['id']; }
 
   function rowKey(table, row, cols) { return (cols || pk(table)).map(c => String(row[c])).join('|'); }
 
@@ -288,6 +290,10 @@
         const db = loadDb();
         const user = currentUser();
         if (!user) return { data: null, error: { message: 'JWT expired', status: 401 } };
+        if (name === 'testar_push') {
+          const tem = db.push_assinaturas.some(r => r.user_id === user.id);
+          return { data: tem ? 'Pedido enviado. O aviso deve chegar em alguns segundos, mesmo com o app fechado.' : 'Este aparelho ainda não está cadastrado. Desligue e ligue os avisos de novo.', error: null };
+        }
         if (name === 'apagar_tudo_da_casa') {
           const eu = db.membros.find(m => m.user_id === user.id);
           if (!eu || eu.papel !== 'admin') return { data: null, error: { message: 'Só o administrador da casa pode apagar tudo.', code: 'P0001' } };

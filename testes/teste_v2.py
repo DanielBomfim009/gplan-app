@@ -25,7 +25,7 @@ RAIZ = Path(__file__).resolve().parents[1]
 PORTA = 8765
 BASE = f"http://127.0.0.1:{PORTA}/v2/index.html"
 MOCK_JS = (RAIZ / "testes" / "mock_supabase.js").read_text(encoding="utf-8")
-CONFIG_JS = "window.GPLAN_CONFIG = { supabaseUrl: 'https://mock.supabase.co', supabaseKey: 'mock', nomeDaCasa: 'Casa Teste' };"
+CONFIG_JS = "window.GPLAN_CONFIG = { supabaseUrl: 'https://mock.supabase.co', supabaseKey: 'mock', nomeDaCasa: 'Casa Teste', vapidPublicKey: 'BTESTE' };"
 CASA = "00000000-0000-0000-0000-000000000001"
 
 falhas = []
@@ -116,6 +116,35 @@ def lancar(page, valor, descricao, tipo="expense", status="pending", categoria=N
         print("  DIAGNOSTICO lancar:", json.dumps(diag, ensure_ascii=False))
         page.screenshot(path=str(RAIZ / "testes" / "falha_lancar.png"))
         raise
+
+
+FAKE_SW = """
+(() => {
+  window.__fakeSub = null;
+  window.__notifs = [];
+  const fakeReg = {
+    pushManager: {
+      async getSubscription() { return window.__fakeSub; },
+      async subscribe() {
+        window.__fakeSub = {
+          endpoint: 'https://push.exemplo/abc',
+          toJSON() { return { endpoint: this.endpoint, keys: { p256dh: 'P', auth: 'A' } }; },
+          async unsubscribe() { window.__fakeSub = null; return true; }
+        };
+        return window.__fakeSub;
+      }
+    },
+    async showNotification(t, o) { window.__notifs.push({ t, o }); },
+    async update() {}
+  };
+  // O Chromium sem janela diz 'denied' até alguém chamar requestPermission; simulamos o navegador normal.
+  window.__perm = 'default';
+  Object.defineProperty(Notification, 'permission', { get: () => window.__perm, configurable: true });
+  Notification.requestPermission = async () => { window.__perm = 'granted'; return 'granted'; };
+  if (!navigator.serviceWorker) Object.defineProperty(navigator, 'serviceWorker', { value: {}, configurable: true });
+  navigator.serviceWorker.getRegistration = async () => fakeReg;
+})();
+"""
 
 
 def esperar_fila_vazia(page):
@@ -295,8 +324,8 @@ def main():
         page.wait_for_function("State.transactions.some(t => t.description === 'Luz')", timeout=10000)
         tx_luz = page.evaluate("State.transactions.find(t => t.description === 'Luz')")
         checar(tx_luz["updatedBy"] == "u2", "lançamento da Maria chegou na aba do Daniel com autor u2")
-        page.wait_for_selector(".toast:has-text('Maria lançou a despesa')", timeout=10000)
-        checar(True, "aviso 'Maria lançou a despesa' apareceu")
+        page.wait_for_selector(".toast:has-text('Maria lançou uma despesa')", timeout=10000)
+        checar(True, "aviso 'Maria lançou uma despesa' apareceu")
         page.evaluate("openPage('transactions')")
         checar("Maria" in txt(page, "#tx-list .tx-item:has-text('Luz') .tx-sub"), "lista mostra '· Maria' no lançamento")
         page2.click("#bottom-nav .nav-item[data-page='control']")
@@ -304,7 +333,7 @@ def main():
         page2.click("#control-expense-list .tx-item:has-text('Luz') .toggle-status-btn")
         page.wait_for_function("State.transactions.find(t => t.description === 'Luz')?.status === 'paid'", timeout=10000)
         checar(True, "pagamento feito pela Maria refletiu na aba do Daniel")
-        page.wait_for_selector(".toast:has-text('marcou como pago')", timeout=10000)
+        page.wait_for_selector(".toast:has-text('Maria pagou')", timeout=10000)
         checar(True, "aviso 'Maria marcou como pago' apareceu")
         page2.evaluate("openPage('transactions')")
         page2.wait_for_function("State.transactions.some(t => t.description === 'Padaria')", timeout=10000)
@@ -554,6 +583,49 @@ def main():
         page.wait_for_function("document.getElementById('live-indicator').classList.contains('ok')", timeout=10000)
         page.wait_for_function("payDateChecked === true", timeout=10000)
         checar(page.evaluate("payDateSupported") is True, "com a coluna de volta, o campo volta")
+
+        print("\n== 18. Relatório: fluxo por data com saldo acumulado")
+        page.evaluate("fluxoCarry = false; localStorage.setItem('gplan2:fluxo_carry', '0'); openPage('reports'); updateReportFromInput('2026-12'); switchReportTab('fluxo')")
+        page.wait_for_timeout(300)
+        linhas = page.evaluate("[...document.querySelectorAll('#report-fluxo .fluxo-row')].map(r => r.dataset.fluxoDate)")
+        checar(linhas == ["2026-12-03", "2026-12-05"], f"datas com movimento, em ordem ({linhas})")
+        l03 = txt(page, "[data-fluxo-date='2026-12-03']")
+        checar("50,00" in l03 and "falta" in l03, "dia 03: saída sem receita fica como falta para a próxima data")
+        l05 = txt(page, "[data-fluxo-date='2026-12-05']")
+        checar("acumulado" in l05 and "R$ 50,00" in l05 and "2.500,00" in l05 and "2.051,00" in l05, "dia 05: o acumulado do dia 03 entra junto e o saldo fecha em 2.051")
+        checar("2.051,00" in txt(page, "#report-fluxo .fluxo-total"), "fim do mês mostra a sobra")
+        page.click("[data-fluxo-date='2026-12-05'] .fluxo-head")
+        page.wait_for_timeout(200)
+        checar("Salário" in txt(page, "[data-fluxo-date='2026-12-05'] .fluxo-items"), "tocar na data abre os lançamentos dela")
+        page.click("#fluxo-carry-btn")
+        page.wait_for_timeout(200)
+        l03b = txt(page, "[data-fluxo-date='2026-12-03']")
+        checar("acumulado" in l03b and "15,00" in l03b and "2.036,00" in txt(page, "#report-fluxo .fluxo-total"), "trazer saldo dos meses anteriores desconta o que faltou em novembro")
+        page.click("#fluxo-carry-btn")
+
+        print("\n== 19. Avisos: tela de abertura, aviso com título, aparelho e segundo plano")
+        checar(page.evaluate("!document.getElementById('splash') || document.getElementById('splash').classList.contains('off')"), "tela de abertura some quando o app carrega")
+        page.evaluate("document.querySelectorAll('.toast').forEach(t => t.remove()); showToast('Mercado · R$ 120,00 · 05/12', 'info', 3000, { title: 'Maria lançou uma despesa' })")
+        checar(page.evaluate("document.querySelector('.toast .toast-text strong')?.textContent") == "Maria lançou uma despesa" and "Mercado" in (page.evaluate("document.querySelector('.toast .toast-text span')?.textContent") or ""), "aviso na tela tem título e detalhe em linhas separadas")
+        ctx.grant_permissions(["notifications"], origin=BASE.split("/v2/")[0])
+        page.evaluate(FAKE_SW)
+        page.evaluate("renderNotifSettings()")
+        page.evaluate("openPage('settings')")
+        page.click("[data-settings-tab='avisos']")
+        page.click("#notif-enable-btn")
+        page.wait_for_function("pushSubscriptionActive === true", timeout=10000)
+        esperar_fila_vazia(page)
+        assin = db(page).get("push_assinaturas", [])
+        checar(len(assin) == 1 and assin[0]["user_id"] == "u1" and assin[0]["endpoint"] == "https://push.exemplo/abc" and assin[0]["p256dh"] == "P", "cadastro do aparelho gravado no banco")
+        checar("ligado" in txt(page, "#notif-bg-status"), "tela mostra 'com o app fechado: ligado'")
+        page.click("#notif-test-btn")
+        page.wait_for_timeout(600)
+        checar(page.evaluate("(window.__notifs || []).length") >= 1, "aviso de teste mostrado pelo próprio aparelho")
+        checar(page.evaluate("[...document.querySelectorAll('.toast')].some(t => t.textContent.includes('Pedido enviado'))"), "teste pela nuvem respondeu")
+        page.click("#notif-enable-btn")
+        page.wait_for_function("pushSubscriptionActive === false", timeout=10000)
+        esperar_fila_vazia(page)
+        checar(len(db(page).get("push_assinaturas", [])) == 0 and page.evaluate("window.__fakeSub") is None, "desligar retira o cadastro do aparelho e do banco")
 
         print("\n== 16. Sair da conta limpa a tela")
         page.evaluate("openPage('settings')")

@@ -13,7 +13,7 @@
 const CONFIG = window.GPLAN_CONFIG || {};
 const SUPABASE_URL = String(CONFIG.supabaseUrl || '').trim();
 const SUPABASE_KEY = String(CONFIG.supabaseKey || '').trim();
-const APP_VERSION = '5.2.0';
+const APP_VERSION = '5.3.0';
 const PAGE_SIZE = 1000;
 const RECORRENCIA_MESES = 12;
 const LS_NOTIF = 'gplan2:avisos';
@@ -162,6 +162,7 @@ const dueSuffix = (t) => (hasSeparatePayDate(t) ? ` · ${t.type === 'income' ? '
 const getMonthKeyFromDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 const getMonthLabel = (date) => date.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
 const formatDate = (d) => (parseLocalDate(d) || new Date()).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+const formatDayMonth = (d) => { const x = parseLocalDate(d); return x ? `${String(x.getDate()).padStart(2, '0')}/${String(x.getMonth() + 1).padStart(2, '0')}` : ''; };
 const formatCurrency = (el) => { let v = el.value.replace(/\D/g, ''); v = (parseInt(v || 0, 10) / 100).toFixed(2).replace('.', ','); el.value = v; };
 const getCategory = (id) => [...State.categories.expense, ...State.categories.income].find(c => c.id === id) || { name: 'Outros', color: '#6b8a99' };
 const getAccount = (id) => State.accounts.find(a => a.id === id) || State.accounts[0] || { id: 'default', name: 'Conta', type: 'Conta', color: '#00b4a0' };
@@ -196,20 +197,39 @@ function safeSetText(id, value) {
   if (el) el.textContent = value;
 }
 
-function showToast(message, type = 'success', duration = 3000) {
+function showToast(message, type = 'success', duration = 3000, { title = '', tag = '' } = {}) {
   const container = document.getElementById('toast-container');
   if (!container) return;
+  if (tag) container.querySelectorAll(`[data-tag="${CSS.escape(tag)}"]`).forEach(t => t.remove());
+  const removiveis = [...container.children].filter(c => c.id !== 'toast-atualizar');
+  while (removiveis.length >= 3) removiveis.shift().remove();
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
+  if (tag) toast.dataset.tag = tag;
   const icon = type === 'error'
     ? '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>'
     : type === 'info'
       ? '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>'
       : '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>';
-  toast.innerHTML = `${icon}<span>${escapeHtml(message)}</span>`;
+  const text = title
+    ? `<div class="toast-text"><strong>${escapeHtml(title)}</strong>${message ? `<span>${escapeHtml(message)}</span>` : ''}</div>`
+    : `<span>${escapeHtml(message)}</span>`;
+  toast.innerHTML = `${icon}${text}`;
   container.appendChild(toast);
   requestAnimationFrame(() => toast.classList.add('show'));
   setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 300); }, duration);
+}
+
+function showUpdateToast() {
+  if (document.getElementById('toast-atualizar')) return;
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+  const toast = document.createElement('div');
+  toast.className = 'toast info';
+  toast.id = 'toast-atualizar';
+  toast.innerHTML = '<div class="toast-text"><strong>Versão nova pronta</strong><span>Toque em Atualizar quando quiser. Nada se perde.</span></div><button type="button" class="toast-btn" onclick="window.location.reload()">Atualizar</button>';
+  container.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add('show'));
 }
 
 function askConfirm({ title = 'Confirmar', message = '', okLabel = 'Confirmar', cancelLabel = 'Cancelar', danger = false } = {}) {
@@ -507,6 +527,12 @@ async function flushQueue() {
           saveQueue();
           continue;
         }
+        if (op.table === 'push_assinaturas') {
+          console.warn('Cadastro de aviso não gravado (falta o SQL 2.3?):', result.error);
+          queue.shift();
+          saveQueue();
+          continue;
+        }
         console.warn('O banco recusou uma alteração:', result.error, op);
         queue.shift();
         saveQueue();
@@ -616,7 +642,15 @@ function ensureClient() {
   return client;
 }
 
+function hideSplash() {
+  const splash = document.getElementById('splash');
+  if (!splash) return;
+  splash.classList.add('off');
+  setTimeout(() => splash.remove(), 400);
+}
+
 function showShell(which) {
+  hideSplash();
   document.getElementById('setup-shell')?.classList.toggle('hidden', which !== 'setup');
   document.getElementById('auth-shell')?.classList.toggle('hidden', which !== 'auth');
   const appVisible = which === 'app';
@@ -704,6 +738,7 @@ async function logout() {
   }
   const c = ensureClient();
   teardownRealtime();
+  await removePushSubscription();
   try { if (c) await withTimeout(c.auth.signOut(), 10000, 'Tempo esgotado ao sair.'); } catch (error) { console.warn('Falha ao encerrar sessão:', error); }
   clearTimeout(cacheTimer);
   cacheTimer = null;
@@ -871,6 +906,7 @@ async function bootstrapSession(user) {
     saveCache();
     renderAll();
     checkPayDateColumn();
+    syncPushSubscription();
     setSyncStatus(queue.length ? 'Enviando alterações guardadas...' : 'Tudo sincronizado.', queue.length ? 'saving' : 'ok');
     skipNextRealtimeReload = true; // acabou de ler tudo da nuvem
     subscribeRealtime();
@@ -1117,14 +1153,15 @@ function flushNotices() {
   if (items.length === 1) {
     const { table, eventType, row } = items[0];
     if (table === 'lancamentos') {
-      const kind = row.type === 'income' ? 'a receita' : 'a despesa';
+      const kind = row.type === 'income' ? 'uma receita' : 'uma despesa';
       const value = formatMoney(row.amount);
-      if (eventType === 'INSERT') { title = `${whoCap} lançou ${kind}`; body = `${row.description} · ${value} · ${formatDate(row.data_pagamento || row.date)}`; }
+      const when = formatDayMonth(row.data_pagamento || row.date);
+      if (eventType === 'INSERT') { title = `${whoCap} lançou ${kind}`; body = `${row.description} · ${value} · ${when}`; }
       else if (eventType === 'DELETE') { title = `${whoCap} excluiu ${kind}`; body = `${row.description} · ${value}`; }
-      else if (row.status === 'paid') { title = `${whoCap} marcou como ${row.type === 'income' ? 'recebido' : 'pago'}`; body = `${row.description} · ${value}`; }
-      else { title = `${whoCap} alterou ${kind}`; body = `${row.description} · ${value} · ${formatDate(row.data_pagamento || row.date)}`; }
+      else if (row.status === 'paid') { title = `${whoCap} ${row.type === 'income' ? 'recebeu' : 'pagou'}`; body = `${row.description} · ${value}`; }
+      else { title = `${whoCap} alterou ${kind}`; body = `${row.description} · ${value} · ${when}`; }
     } else if (table === 'metas') {
-      title = eventType === 'DELETE' ? `${whoCap} excluiu uma meta` : `${whoCap} atualizou a meta`;
+      title = eventType === 'DELETE' ? `${whoCap} excluiu a meta` : `${whoCap} atualizou a meta`;
       body = `${row.title} · ${formatMoney(row.current)} de ${formatMoney(row.target)}`;
     } else if (table === 'contas') {
       title = `${whoCap} alterou as contas`;
@@ -1140,11 +1177,14 @@ function flushNotices() {
     const txCount = items.filter(i => i.table === 'lancamentos').length;
     if (txCount === items.length) {
       const inserts = items.filter(i => i.eventType === 'INSERT').length;
-      if (inserts === items.length) { title = `${whoCap} lançou ${inserts} itens`; body = items[0].row.description ? `${items[0].row.description} e outros` : ''; }
-      else body = `${items.length} alterações em lançamentos`;
+      if (inserts === items.length) { title = `${whoCap} lançou ${inserts} lançamentos`; body = items[0].row.description ? `${items[0].row.description} e outros` : ''; }
+      else { title = `${whoCap} alterou ${items.length} lançamentos`; body = items[0].row.description ? `${items[0].row.description} e outros` : ''; }
+    } else {
+      title = `${whoCap} fez ${items.length} alterações`;
+      body = '';
     }
   }
-  showToast(body ? `${title}: ${body}` : title, 'info', 5000);
+  showToast(body, 'info', 6000, { title });
   showDeviceNotification(title, body);
 }
 
@@ -1183,6 +1223,98 @@ function renderNotifSettings() {
   }
   document.getElementById('notif-toggle-outros')?.classList.toggle('active', notifPrefs.outros);
   document.getElementById('notif-toggle-vencimentos')?.classList.toggle('active', notifPrefs.vencimentos);
+  const ligado = supported && permission === 'granted' && notifPrefs.enabled;
+  const bg = document.getElementById('notif-bg-status');
+  if (bg) {
+    let msg = '';
+    if (!supported) msg = '';
+    else if (!VAPID_PUBLIC_KEY) msg = 'Com o app fechado: ainda não configurado (falta a chave no config.js).';
+    else if (!('PushManager' in window)) msg = `Com o app fechado: este navegador não recebe avisos.${isIOS() ? ' No iPhone, instale o app na tela inicial.' : ''}`;
+    else if (ligado) msg = pushSubscriptionActive ? 'Com o app fechado: ligado neste aparelho.' : 'Com o app fechado: ligando...';
+    else msg = 'Com o app fechado: desligado.';
+    bg.textContent = msg;
+  }
+  document.getElementById('notif-test-btn')?.classList.toggle('hidden', !ligado);
+}
+
+const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const VAPID_PUBLIC_KEY = String(CONFIG.vapidPublicKey || '').trim();
+let pushSubscriptionActive = false; // este aparelho está cadastrado para receber avisos com o app fechado
+
+function urlBase64ToUint8Array(base64) {
+  const padding = '='.repeat((4 - (base64.length % 4)) % 4);
+  const raw = atob((base64 + padding).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(raw, c => c.charCodeAt(0));
+}
+
+const pushSupported = () => Boolean(VAPID_PUBLIC_KEY) && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+
+function deviceLabel() {
+  const ua = navigator.userAgent;
+  const so = /iPhone|iPad|iPod/.test(ua) ? 'iPhone' : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows' : /Mac/.test(ua) ? 'Mac' : 'Aparelho';
+  const instalado = window.navigator.standalone || window.matchMedia?.('(display-mode: standalone)')?.matches;
+  return `${so} · ${instalado ? 'aplicativo' : 'navegador'}`;
+}
+
+// Garante (ou retira) o cadastro deste aparelho para avisos com o app fechado.
+async function syncPushSubscription() {
+  if (!me || !casaId) return;
+  const quer = pushSupported() && Notification.permission === 'granted' && notifPrefs.enabled;
+  try {
+    const registration = await navigator.serviceWorker?.getRegistration?.();
+    if (!registration?.pushManager) { pushSubscriptionActive = false; renderNotifSettings(); return; }
+    let sub = await registration.pushManager.getSubscription();
+    if (!quer) {
+      if (sub) {
+        const endpoint = sub.endpoint;
+        await sub.unsubscribe().catch(() => false);
+        enqueue({ table: 'push_assinaturas', kind: 'deleteMatch', match: { endpoint } });
+      }
+      pushSubscriptionActive = false;
+      renderNotifSettings();
+      return;
+    }
+    if (!sub) sub = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) });
+    const json = sub.toJSON ? sub.toJSON() : {};
+    enqueue({
+      table: 'push_assinaturas', kind: 'upsert', onConflict: 'endpoint',
+      rows: [{ endpoint: sub.endpoint, user_id: me.id, casa_id: casaId, p256dh: json.keys?.p256dh || '', auth: json.keys?.auth || '', aparelho: deviceLabel() }]
+    });
+    pushSubscriptionActive = true;
+  } catch (error) {
+    console.warn('Cadastro de aviso em segundo plano falhou:', error);
+    pushSubscriptionActive = false;
+  }
+  renderNotifSettings();
+}
+
+// Ao sair da conta: este aparelho deixa de receber avisos desta pessoa.
+async function removePushSubscription() {
+  try {
+    const registration = await navigator.serviceWorker?.getRegistration?.();
+    const sub = await registration?.pushManager?.getSubscription?.();
+    if (sub) {
+      const endpoint = sub.endpoint;
+      await sub.unsubscribe().catch(() => false);
+      if (client) await withTimeout(client.from('push_assinaturas').delete().eq('endpoint', endpoint), 5000, 'Tempo esgotado.');
+    }
+  } catch (error) {
+    console.warn('Não consegui retirar o cadastro de avisos:', error);
+  }
+  pushSubscriptionActive = false;
+}
+
+async function testNotification() {
+  await showDeviceNotification('Teste de aviso', 'Este aviso veio do próprio aparelho.', { force: true });
+  if (!pushSubscriptionActive || !client) { showToast('Aviso de teste mostrado neste aparelho.', 'success'); return; }
+  try {
+    const { data, error } = await withTimeout(client.rpc('testar_push'), 15000, 'Tempo esgotado.');
+    if (error) throw error;
+    showToast(String(data || 'Pedido enviado.'), 'info', 7000, { title: 'Teste pela nuvem' });
+  } catch (error) {
+    const msg = String(error?.message || error);
+    showToast(/testar_push/i.test(msg) ? 'Falta rodar o SQL 2.3 no Supabase.' : msg, 'error', 7000, { title: 'Teste pela nuvem não saiu' });
+  }
 }
 
 async function enableDeviceNotifications() {
@@ -1191,6 +1323,7 @@ async function enableDeviceNotifications() {
     notifPrefs.enabled = false;
     saveNotifPrefs();
     showToast('Avisos desligados neste aparelho.');
+    syncPushSubscription();
     return;
   }
   try {
@@ -1198,8 +1331,9 @@ async function enableDeviceNotifications() {
     if (permission === 'granted') {
       notifPrefs.enabled = true;
       saveNotifPrefs();
-      showToast('Avisos ligados. Você será avisado do que a outra pessoa fizer.');
+      showToast('Você será avisado do que a outra pessoa fizer, mesmo com o app fechado.', 'success', 5000, { title: 'Avisos ligados' });
       showDeviceNotification('Avisos ligados', 'O Controle Financeiro vai avisar por aqui.', { force: true });
+      syncPushSubscription();
     } else {
       saveNotifPrefs();
       showToast('Permissão não concedida pelo navegador.', 'error');
@@ -1217,6 +1351,7 @@ function toggleNotifPref(key) {
 
 async function showDeviceNotification(title, body, { force = false } = {}) {
   if (!('Notification' in window) || Notification.permission !== 'granted' || !notifPrefs.enabled) return;
+  if (!force && pushSubscriptionActive) return; // a nuvem manda o aviso a este aparelho (sem duplicar)
   if (!force && !document.hidden) return; // com o app na frente, o aviso na tela já basta
   const options = { body, icon: 'logo-192.png', badge: 'logo-192.png', tag: `gplan-${Date.now()}`, lang: 'pt-BR' };
   try {
@@ -2049,6 +2184,7 @@ function renderReports() {
   };
   breakdown('report-expenses-breakdown', 'expense', expense, 'Sem dados de despesas');
   breakdown('report-income-breakdown', 'income', income, 'Sem dados de receitas');
+  renderFluxo(monthTx);
 
   const budgetContainer = document.getElementById('report-budget-breakdown');
   if (budgetContainer) {
@@ -2064,6 +2200,84 @@ function renderReports() {
         </div>`).join('')
       : '<p class="text-center text-sm text-[#6b8a99]">Defina limites de orçamento em Configurações, aba Contas.</p>';
   }
+}
+
+// Fluxo por data: cada dia com movimento, com o que entra, o que sai e o que
+// sobra (ou falta) para a próxima data. O que falta num dia vira "acumulado"
+// e é abatido na próxima data em que entra dinheiro.
+let fluxoCarry = (() => { try { return localStorage.getItem('gplan2:fluxo_carry') === '1'; } catch (_) { return false; } })();
+let fluxoOpenDate = null;
+
+function buildDailyFlow(transactions, opening = 0) {
+  const byDate = new Map();
+  transactions.forEach(t => {
+    const key = effectiveDate(t);
+    if (!isDateInput(key)) return;
+    if (!byDate.has(key)) byDate.set(key, []);
+    byDate.get(key).push(t);
+  });
+  let running = round2(opening);
+  return [...byDate.keys()].sort().map(key => {
+    const items = sortTransactionsByDateAsc(byDate.get(key));
+    const income = round2(items.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0));
+    const expense = round2(items.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0));
+    const before = running;
+    running = round2(before + income - expense);
+    return { key, items, income, expense, before, after: running, pending: items.filter(t => t.status === 'pending').length };
+  });
+}
+
+function toggleFluxoCarry() {
+  fluxoCarry = !fluxoCarry;
+  try { localStorage.setItem('gplan2:fluxo_carry', fluxoCarry ? '1' : '0'); } catch (_) { /* ok */ }
+  renderReports();
+}
+
+function toggleFluxoDate(key) {
+  fluxoOpenDate = fluxoOpenDate === key ? null : key;
+  renderReports();
+}
+
+function renderFluxo(monthTx) {
+  const box = document.getElementById('report-fluxo');
+  if (!box) return;
+  const monthKey = getMonthKeyFromDate(State.reportCustomDate);
+  const opening = fluxoCarry
+    ? round2(State.transactions.filter(t => effectiveDate(t) && effectiveDate(t).slice(0, 7) < monthKey).reduce((s, t) => s + (t.type === 'income' ? t.amount : -t.amount), 0))
+    : 0;
+  const rows = buildDailyFlow(monthTx, opening);
+  const carryBtn = document.getElementById('fluxo-carry-btn');
+  if (carryBtn) carryBtn.textContent = fluxoCarry ? 'Começar o mês do zero' : 'Trazer saldo dos meses anteriores';
+  if (!rows.length) { box.innerHTML = '<p class="text-center text-sm text-[#6b8a99]">Sem lançamentos neste mês.</p>'; return; }
+  const weekday = (key) => (parseLocalDate(key)?.toLocaleDateString('pt-BR', { weekday: 'short' }) || '').replace('.', '');
+  const money = (v) => `${v < 0 ? '- ' : ''}${formatMoney(Math.abs(v))}`;
+  const openingHtml = fluxoCarry
+    ? `<div class="fluxo-opening"><span>Vem dos meses anteriores</span><strong class="${opening >= 0 ? 'text-brand' : 'text-expense'}">${money(opening)}</strong></div>`
+    : '';
+  const last = rows[rows.length - 1];
+  box.innerHTML = openingHtml + rows.map(r => {
+    const open = fluxoOpenDate === r.key;
+    const carryIn = r.before > 0 ? `<span class="fluxo-carry text-brand">+ sobra anterior ${formatMoney(r.before)}</span>` : '';
+    const carryOut = r.before < 0 ? `<span class="fluxo-carry text-expense">+ acumulado ${formatMoney(-r.before)}</span>` : '';
+    const saldoNote = r.after < 0
+      ? '<span class="fluxo-carry text-expense">falta: vai para a próxima data</span>'
+      : (r.before < 0 ? '<span class="fluxo-carry text-brand">acumulado quitado</span>' : '');
+    const items = open
+      ? `<div class="fluxo-items">${r.items.map(t => `<div class="fluxo-item"><span class="fluxo-item-desc">${escapeHtml(t.description)}${t.status === 'pending' ? ' <em>pendente</em>' : ''}${hasSeparatePayDate(t) ? ` <em>vence ${formatDayMonth(t.date)}</em>` : ''}</span><span class="${t.type === 'income' ? 'text-income' : 'text-expense'}">${t.type === 'income' ? '+' : '-'}${formatMoney(t.amount)}</span></div>`).join('')}</div>`
+      : '';
+    return `
+      <div class="fluxo-row${open ? ' open' : ''}" data-fluxo-date="${r.key}">
+        <button type="button" class="fluxo-head" onclick="toggleFluxoDate('${r.key}')" aria-expanded="${open}">
+          <div class="fluxo-date"><strong>${r.key.slice(8, 10)}</strong><span>${escapeHtml(weekday(r.key))}</span>${r.pending ? `<em>${r.pending} pend.</em>` : ''}</div>
+          <div class="fluxo-cols">
+            <div class="fluxo-col"><span class="fluxo-lbl">Entradas</span><span class="fluxo-val text-income">${formatMoney(r.income)}</span>${carryIn}</div>
+            <div class="fluxo-col"><span class="fluxo-lbl">Saídas</span><span class="fluxo-val text-expense">${formatMoney(r.expense)}</span>${carryOut}</div>
+            <div class="fluxo-col"><span class="fluxo-lbl">Saldo</span><span class="fluxo-val ${r.after >= 0 ? 'text-brand' : 'text-expense'}">${money(r.after)}</span>${saldoNote}</div>
+          </div>
+        </button>
+        ${items}
+      </div>`;
+  }).join('') + `<div class="fluxo-total"><span>Fim do mês</span><strong class="${last.after >= 0 ? 'text-brand' : 'text-expense'}">${last.after >= 0 ? 'sobra ' : 'falta '}${formatMoney(Math.abs(last.after))}</strong></div>`;
 }
 
 // Calendário
@@ -2399,7 +2613,7 @@ function openPage(page) {
   if (page === 'transactions') { renderTransactions(); initTxDatePicker(); }
   if (page === 'goals') renderGoals();
   if (page === 'reports') { renderReports(); initReportDatePicker(); switchReportTab(activeReportTab, { scroll: false }); }
-  if (page === 'settings') loadProfileToSettings();
+  if (page === 'settings') { loadProfileToSettings(); renderNotifSettings(); }
   if (page === 'control') { renderControlPage(); initControlDatePicker(); switchControlTab(activeControlTab, { scroll: false }); }
   if (page === 'dashboard') { updateDashboard(); switchDashboardTab(activeDashboardTab, { scroll: false }); }
   updateAllAvatars();
@@ -3331,18 +3545,27 @@ document.addEventListener('DOMContentLoaded', () => {
     const awayMs = hiddenAt ? Date.now() - hiddenAt : 0;
     if (realtimeStatus !== 'SUBSCRIBED') scheduleRealtimeRetry(300);
     else if (awayMs > 60000) reloadFromCloud().catch(error => console.warn('Releitura ao voltar falhou:', error)); // muito tempo fora: o tempo real pode ter perdido algo
+    if (awayMs > 60000 && 'serviceWorker' in navigator) navigator.serviceWorker.getRegistration().then(r => r?.update()).catch(() => null); // procura versão nova
   });
   window.addEventListener('pagehide', flushCacheNow);
+  setTimeout(hideSplash, 8000); // segurança: nunca deixar a tela de abertura presa
 
   if ('serviceWorker' in navigator) {
     let refreshing = false;
     const hadController = Boolean(navigator.serviceWorker.controller);
+    const pageStartedAt = Date.now();
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      // Só recarrega quando uma versão NOVA substitui a antiga; na primeira
-      // visita não há versão antiga e recarregar só atrapalharia.
+      // Uma versão nova assumiu. Logo na abertura, recarrega sem ninguém notar
+      // (a tela de abertura ainda está na frente); no meio do uso, só avisa e
+      // deixa a pessoa escolher a hora, sem piscar a tela.
       if (refreshing || !hadController) return;
-      refreshing = true;
-      window.location.reload();
+      if (Date.now() - pageStartedAt < 5000) { refreshing = true; window.location.reload(); return; }
+      showUpdateToast();
+    });
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      const data = event.data || {};
+      // O aviso chegou pela nuvem com o app na frente; se o tempo real estiver fora, mostra na tela.
+      if (data.type === 'PUSH_VISTO' && data.dados?.title && realtimeStatus !== 'SUBSCRIBED') showToast(data.dados.body || '', 'info', 6000, { title: data.dados.title });
     });
     navigator.serviceWorker.register('sw.js').then(registration => {
       registration.update();

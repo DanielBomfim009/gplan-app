@@ -4,6 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Controle Financeiro</title>
+  <style>
+    /* Fundo escuro desde o primeiro instante, antes do CSS chegar: sem tela branca. */
+    html { background: #0d1f2d; color-scheme: dark; }
+    body { margin: 0; background: #0d1f2d; color: #e8f4f8; overscroll-behavior-y: none; }
+    #splash { position: fixed; inset: 0; z-index: 2000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: #0d1f2d; transition: opacity .25s ease; }
+    #splash.off { opacity: 0; pointer-events: none; }
+    #splash img { width: 72px; height: 72px; border-radius: 20px; }
+    #splash span { font: 600 14px/1.2 system-ui, -apple-system, sans-serif; color: #86a8b7; letter-spacing: .02em; }
+  </style>
 
   <!-- PWA / Instalação -->
   <meta name="theme-color" content="#00b4a0">
@@ -27,6 +36,7 @@
   <link rel="stylesheet" href="tailwind.css">
 </head>
 <body>
+  <div id="splash" aria-hidden="true"><img src="logo-192.png" alt=""><span>Controle Financeiro</span></div>
 
   <!-- Configuração pendente (aparece só enquanto config.js estiver vazio) -->
   <div id="setup-shell" class="auth-shell hidden">
@@ -733,6 +743,7 @@
 
       <div class="section-tabs mt-4" aria-label="Seções de relatórios">
         <button type="button" class="section-tab-btn active" data-report-tab="summary" onclick="switchReportTab('summary')">Resumo</button>
+        <button type="button" class="section-tab-btn" data-report-tab="fluxo" onclick="switchReportTab('fluxo')">Por data</button>
         <button type="button" class="section-tab-btn" data-report-tab="profit" onclick="switchReportTab('profit')">Rendimento</button>
         <button type="button" class="section-tab-btn" data-report-tab="categories" onclick="switchReportTab('categories')">Categorias</button>
         <button type="button" class="section-tab-btn" data-report-tab="budget" onclick="switchReportTab('budget')">Orçamento</button>
@@ -754,6 +765,15 @@
             <div class="text-2xl font-bold text-brand" id="report-balance">R$ 0,00</div>
           </div>
         </div>
+      </div>
+
+      <div class="card mt-4 mb-4 hidden" data-report-panel="fluxo">
+        <div class="section-header">
+          <h2 class="section-title">Fluxo por data</h2>
+          <button type="button" id="fluxo-carry-btn" class="text-xs text-brand font-semibold text-right" onclick="toggleFluxoCarry()">Trazer saldo dos meses anteriores</button>
+        </div>
+        <div class="px-4 pt-3 text-xs text-[#86a8b7] leading-5">Cada data com movimento: o que entra, o que sai e o que sobra ou falta para a próxima data. O que faltou num dia aparece como acumulado no dia seguinte em que entra dinheiro. Toque numa data para ver os lançamentos.</div>
+        <div class="p-4" id="report-fluxo"></div>
       </div>
 
       <div class="card mt-4 mb-4 hidden" data-report-panel="profit">
@@ -954,8 +974,10 @@
           <span class="text-xs font-semibold" id="notif-status">Desligados</span>
         </div>
         <div class="p-4 space-y-3">
-          <div class="text-xs text-[#86a8b7] leading-5">Com os avisos ligados, quando a outra pessoa lançar ou pagar algo e o aplicativo estiver em segundo plano, aparece uma notificação neste aparelho. Com o aplicativo aberto, aparece um aviso na tela.</div>
+          <div class="text-xs text-[#86a8b7] leading-5">Com os avisos ligados, você recebe uma notificação neste aparelho quando a outra pessoa lançar, pagar ou alterar algo, mesmo com o aplicativo fechado. Com o aplicativo aberto, o aviso aparece na própria tela.</div>
           <button id="notif-enable-btn" onclick="enableDeviceNotifications()" class="settings-action-btn">Ligar avisos neste aparelho</button>
+          <div class="text-xs leading-5 text-[#86a8b7]" id="notif-bg-status"></div>
+          <button id="notif-test-btn" onclick="testNotification()" class="settings-action-btn hidden">Testar aviso agora</button>
           <div class="recurring-toggle" id="notif-toggle-outros" onclick="toggleNotifPref('outros')">
             <div class="recurring-toggle-content">
               <div>
