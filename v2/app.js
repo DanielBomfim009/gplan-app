@@ -2260,10 +2260,10 @@ function renderReports() {
 let fluxoCarry = (() => { try { return localStorage.getItem('gplan2:fluxo_carry') === '1'; } catch (_) { return false; } })();
 let fluxoOpenDate = null;
 
-// No fluxo por data, a despesa entra no dia do VENCIMENTO (é quando a conta chega),
-// mesmo que o pagamento esteja marcado para depois; a receita entra no dia em que
-// o dinheiro chega (recebimento, ou a data prevista quando não há outra).
-const fluxoDate = (t) => (t.type === 'expense' ? (t.date || '') : effectiveDate(t));
+// No fluxo por data, tudo entra pela PRIMEIRA data do lançamento: a despesa no dia
+// do vencimento e a receita no dia previsto, mesmo que o pagamento ou o recebimento
+// estejam marcados para depois (decisão do dono, 13/11/2026).
+const fluxoDate = (t) => (t.date || '');
 
 function buildDailyFlow(transactions, opening = 0) {
   const byDate = new Map();
