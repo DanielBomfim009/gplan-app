@@ -1,0 +1,35 @@
+# Mantém o projeto do Supabase acordado (autorizado pelo dono em 24/11/2026).
+# O plano grátis PAUSA o banco depois de 7 dias sem nenhuma chamada. Este robô do
+# GitHub faz uma chamada leve, só de leitura, todo dia, usando a chave pública que já
+# está no config.js. Não grava nada em lugar nenhum.
+# Se o banco estiver pausado, o robô falha e o GitHub avisa por e-mail.
+name: Manter o banco ativo
+
+on:
+  schedule:
+    - cron: '0 9 * * *'   # 09:00 UTC = 06:00 de Brasília, todo dia
+  workflow_dispatch:       # também pode rodar à mão (aba Actions, Run workflow)
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Chamar o banco
+        run: |
+          URL=$(grep -o "https://[a-z0-9]*\.supabase\.co" v2/config.js | head -1)
+          KEY=$(grep -o "sb_publishable_[A-Za-z0-9_]*" v2/config.js | head -1)
+          echo "Projeto: $URL"
+          A=$(curl -s -o /dev/null -w "%{http_code}" -m 30 "$URL/auth/v1/settings" -H "apikey: $KEY")
+          R=$(curl -s -o /dev/null -w "%{http_code}" -m 30 "$URL/rest/v1/" -H "apikey: $KEY" -H "Authorization: Bearer $KEY")
+          echo "auth=$A rest=$R"
+          # 000 = o endereço nem existe: projeto PAUSADO (precisa do Restore no painel do Supabase)
+          if [ "$A" = "000" ]; then
+            echo "::error::O projeto do Supabase parece PAUSADO. Abra supabase.com, projeto controle-casa, e clique em Restore project."
+            exit 1
+          fi
+          echo "Banco acordado."
