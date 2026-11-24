@@ -191,6 +191,8 @@
       await delay(LATENCY_MS);
       if (!navigator.onLine || window.__mockOffline || mockPausado()) return { data: null, error: { message: 'TypeError: Failed to fetch' } };
       if (window.__mockFailNext) { window.__mockFailNext = false; return { data: null, error: { message: 'erro simulado', code: '23514', status: 400 } }; }
+      // Banco restaurando: só as escritas falham, com resposta sem código (como o portão do Supabase devolve)
+      if (window.__mockWriteError && this.op !== 'select') return { data: null, error: { message: window.__mockWriteError }, status: 540 };
       const db = loadDb();
       const user = currentUser();
       if (!user) return { data: null, error: { message: 'JWT expired', status: 401 } };

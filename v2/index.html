@@ -1001,6 +1001,21 @@
       </div>
 
       <!-- Backup -->
+      <div id="rejected-card" class="card mt-4 hidden" data-settings-panel="backup">
+        <div class="section-header">
+          <h2 class="section-title text-expense" id="rejected-count">Alterações recusadas pelo banco</h2>
+        </div>
+        <div class="p-4 space-y-3">
+          <div class="text-xs text-[#86a8b7] leading-5">O banco entendeu e recusou estas alterações (regra, dado inválido ou coluna que ainda não existe). Elas ficam guardadas neste aparelho até você decidir: tentar de novo, baixar uma cópia ou apagar.</div>
+          <div id="rejected-list"></div>
+          <div class="grid grid-cols-3 gap-2">
+            <button type="button" class="settings-action-btn" onclick="retryRejected()">Tentar de novo</button>
+            <button type="button" class="settings-action-btn" onclick="exportRejected()">Baixar cópia</button>
+            <button type="button" class="settings-action-btn text-expense" onclick="discardRejected()">Apagar</button>
+          </div>
+        </div>
+      </div>
+
       <div class="card mt-4 hidden" data-settings-panel="backup">
         <div class="section-header">
           <h2 class="section-title">Segurança e Backup</h2>

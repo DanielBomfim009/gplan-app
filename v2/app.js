@@ -13,7 +13,7 @@
 const CONFIG = window.GPLAN_CONFIG || {};
 const SUPABASE_URL = String(CONFIG.supabaseUrl || '').trim();
 const SUPABASE_KEY = String(CONFIG.supabaseKey || '').trim();
-const APP_VERSION = '5.3.4';
+const APP_VERSION = '5.3.5';
 const PAGE_SIZE = 1000;
 const RECORRENCIA_MESES = 12;
 const LS_NOTIF = 'gplan2:avisos';
@@ -98,6 +98,7 @@ let skipNextRealtimeReload = false; // logo após carregar tudo, a 1ª conexão 
 let cacheTimer = null;
 let historicoTimer = null;
 let queue = [];
+let flushRetryTimer = null;
 let flushing = false;
 let bootToken = 0;
 let cloudLoaded = false;
@@ -520,15 +521,82 @@ function enqueue(op) {
   flushQueue();
 }
 
-function isRetryableError(error) {
-  if (!navigator.onLine) return true;
-  const message = String(error?.message || error || '').toLowerCase();
-  const status = Number(error?.status || 0);
-  if (/fetch|network|tempo esgotado|timeout|timed out|load failed|aborted/.test(message)) return true;
-  if ([401, 408, 425, 429, 500, 502, 503, 504].includes(status)) return true;
-  if (/jwt|token|expired/.test(message)) return true;
-  if (error?.code === 'PGRST301') return true;
-  return false;
+// Erro de DADO (o banco entendeu e recusou: regra, chave, coluna inexistente, exceção
+// escrita no SQL). Tentar de novo não resolve; a alteração vai para "recusadas".
+// Qualquer OUTRO erro (sem internet, banco pausado/restaurando, 5xx, 540, página HTML,
+// sessão vencida, sem status nenhum) é passageiro: a fila tenta de novo, sem nunca descartar.
+function isDataError(error, status = 0) {
+  const code = String(error?.code || '');
+  if (code === 'PGRST301') return false; // JWT vencido: renova e tenta de novo
+  if (/^PGRST(1\d\d|20\d)$/.test(code)) return true; // pedido mal formado, coluna ou relação inexistente
+  if (/^(22|23|42|P0)/.test(code)) return true; // dado inválido, regra/chave violada, sem permissão, exceção do SQL
+  return [400, 409, 422].includes(Number(status || 0)) && Boolean(code);
+}
+
+let rejected = []; // alterações recusadas pelo banco (guardadas no aparelho, nunca perdidas)
+const lsRejectedKey = (uid) => `gplan2:recusadas:${uid}`;
+
+function loadRejected() {
+  try { rejected = JSON.parse(localStorage.getItem(lsRejectedKey(me.id)) || '[]'); } catch (_) { rejected = []; }
+  if (!Array.isArray(rejected)) rejected = [];
+  renderRejected();
+}
+
+function saveRejected() {
+  try { localStorage.setItem(lsRejectedKey(me.id), JSON.stringify(rejected)); } catch (error) { console.warn('Recusadas não guardadas:', error); }
+  renderRejected();
+}
+
+function describeOp(op) {
+  const rows = Array.isArray(op.rows) ? op.rows : [];
+  const first = rows[0] || {};
+  const what = first.description || first.title || first.name || op.match?.endpoint || (op.ids ? `${op.ids.length} item(ns)` : op.table);
+  const kind = op.kind === 'upsert' ? 'gravar' : op.kind === 'update' ? 'alterar' : 'excluir';
+  return `${kind} em ${op.table}: ${what}${rows.length > 1 ? ` e mais ${rows.length - 1}` : ''}`;
+}
+
+function parkRejected(op, error) {
+  rejected.push({ ...op, erro: String(error?.message || error || 'erro'), codigo: String(error?.code || ''), recusadaEm: new Date().toISOString() });
+  saveRejected();
+  showToast(`${describeOp(op)}. Guardei em Configurações, Backup, para tentar de novo ou baixar.`, 'error', 9000, { title: 'O banco recusou uma alteração' });
+}
+
+function renderRejected() {
+  const card = document.getElementById('rejected-card');
+  if (!card) return;
+  card.classList.toggle('hidden', !rejected.length);
+  if (!rejected.length) return;
+  safeSetText('rejected-count', rejected.length === 1 ? '1 alteração recusada pelo banco' : `${rejected.length} alterações recusadas pelo banco`);
+  const list = document.getElementById('rejected-list');
+  if (list) list.innerHTML = rejected.slice(-5).reverse().map(r => `<div class="rejected-item"><strong>${escapeHtml(describeOp(r))}</strong><span>${escapeHtml(r.erro)}</span></div>`).join('');
+}
+
+function retryRejected() {
+  if (!rejected.length) return;
+  const again = rejected.splice(0).map(({ erro, codigo, recusadaEm, tentativas, ...op }) => op);
+  saveRejected();
+  again.forEach(op => queue.push(op));
+  saveQueue();
+  showToast(`${again.length} alteração(ões) de volta na fila.`, 'info');
+  flushQueue();
+}
+
+function exportRejected() {
+  const blob = new Blob([JSON.stringify({ app: 'Controle Financeiro', type: 'recusadas', version: APP_VERSION, exported_at: new Date().toISOString(), recusadas: rejected }, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `controle_financeiro_recusadas_${todayInput()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function discardRejected() {
+  askConfirm({ title: 'Apagar as recusadas?', message: 'Elas somem deste aparelho. Baixe uma cópia antes, se quiser guardar.', okLabel: 'Apagar', danger: true }).then(ok => {
+    if (!ok) return;
+    rejected = [];
+    saveRejected();
+  });
 }
 
 async function execOp(op) {
@@ -564,11 +632,7 @@ async function flushQueue() {
         result = { error };
       }
       if (result?.error) {
-        if (isRetryableError(result.error)) {
-          setSyncStatus('Nuvem fora de alcance. Tentando de novo em instantes.', 'warn', String(result.error.message || ''));
-          setTimeout(flushQueue, 8000);
-          return;
-        }
+        const status = Number(result?.status || result?.error?.status || 0);
         if (payDateSupported && /data_pagamento/i.test(String(result.error.message || ''))) {
           // Banco ainda sem a coluna da data de pagamento: segue sem ela e avisa uma vez.
           payDateSupported = false;
@@ -584,12 +648,25 @@ async function flushQueue() {
           saveQueue();
           continue;
         }
-        console.warn('O banco recusou uma alteração:', result.error, op);
-        queue.shift();
+        if (isDataError(result.error, status)) {
+          console.warn('O banco recusou uma alteração (guardada em recusadas):', result.error, op);
+          queue.shift();
+          parkRejected(op, result.error);
+          saveQueue();
+          continue;
+        }
+        // Erro passageiro (sem internet, banco pausado/restaurando, 5xx, 540, HTML, sessão...):
+        // espera crescente (8 s, 16 s, 32 s, 64 s, no máximo 2 min) e tenta de novo. Nunca descarta.
+        op.tentativas = (op.tentativas || 0) + 1;
         saveQueue();
-        showToast(`O banco recusou uma alteração: ${result.error.message || 'erro'}`, 'error', 5000);
-        continue;
+        const wait = Math.min(120000, 8000 * (2 ** Math.min(op.tentativas - 1, 4)));
+        const motivo = String(result.error.message || '').replace(/<[^>]+>/g, ' ').trim().slice(0, 120) || (status ? `HTTP ${status}` : 'sem resposta');
+        setSyncStatus(`Nuvem fora de alcance. Tentando de novo em ${Math.round(wait / 1000)} s.`, 'warn', `${queue.length} alteração(ões) guardada(s). Motivo: ${motivo}`);
+        clearTimeout(flushRetryTimer);
+        flushRetryTimer = setTimeout(flushQueue, wait);
+        return;
       }
+      delete op.tentativas;
       queue.shift();
       saveQueue();
     }
@@ -817,6 +894,7 @@ function resetSessionState() {
   myMember = null;
   casaId = null;
   queue = [];
+  rejected = [];
   cloudLoaded = false;
   offlineMode = false;
   lastCloudReadAt = null;
@@ -925,6 +1003,7 @@ async function bootstrapSession(user) {
   rememberLastUser();
   showShell('app');
   loadQueue();
+  loadRejected();
   if (loadCache()) renderAll();
   setSyncStatus('Carregando da nuvem...', 'saving');
   updateLiveIndicator();
