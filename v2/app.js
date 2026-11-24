@@ -13,7 +13,7 @@
 const CONFIG = window.GPLAN_CONFIG || {};
 const SUPABASE_URL = String(CONFIG.supabaseUrl || '').trim();
 const SUPABASE_KEY = String(CONFIG.supabaseKey || '').trim();
-const APP_VERSION = '5.3.0';
+const APP_VERSION = '5.3.4';
 const PAGE_SIZE = 1000;
 const RECORRENCIA_MESES = 12;
 const LS_NOTIF = 'gplan2:avisos';
@@ -757,6 +757,9 @@ async function submitAuth(event) {
     // O onAuthStateChange cuida do resto (SIGNED_IN).
   } catch (error) {
     safeSetText('auth-status', friendlyAuthError(error));
+    if (isNetworkishError(error) && navigator.onLine) {
+      internetWorks().then(ok => { if (ok) { safeSetText('auth-status', `O banco parece pausado. ${PAUSED_HINT}`); watchDbComeback(); } });
+    }
   } finally {
     if (button) button.disabled = false;
   }
@@ -775,6 +778,9 @@ async function forgotPassword() {
     safeSetText('auth-status', `Enviei um link para ${email}. Abra o e-mail neste aparelho e escolha a nova senha.`);
   } catch (error) {
     safeSetText('auth-status', friendlyAuthError(error));
+    if (isNetworkishError(error) && navigator.onLine) {
+      internetWorks().then(ok => { if (ok) { safeSetText('auth-status', `O banco parece pausado. ${PAUSED_HINT}`); watchDbComeback(); } });
+    }
   }
 }
 
@@ -973,13 +979,51 @@ async function bootstrapSession(user) {
     maybeAskName();
   } catch (error) {
     if (token !== bootToken) return;
-    console.error('Falha ao carregar a nuvem:', error);
+    console.warn('Falha ao carregar a nuvem (tratada na tela):', error);
     const hasLocal = State.transactions.length > 0 || State.goals.length > 0;
     const detail = describeCloudError(error);
     setSyncStatus(hasLocal ? 'Nuvem indisponível. Mostrando a cópia deste aparelho.' : 'Não consegui carregar a nuvem.', 'off', detail);
-    if (!hasLocal) showToast(`Não consegui carregar os dados. ${detail}`, 'error', 8000);
+    explainCloudFailure(error).then(explained => {
+      if (!explained && !hasLocal) showToast(`Não consegui carregar os dados. ${detail}`, 'error', 8000);
+    });
     scheduleRealtimeRetry(15000);
   }
+}
+
+// Internet funciona mas o banco não responde? Quase sempre é o projeto PAUSADO no
+// Supabase (plano grátis, 7 dias sem uso). Avisa o que fazer e fica de olho: quando
+// o banco voltar, recarrega sozinho (cache e fila ficam guardados; nada se perde).
+let dbRetryTimer = null;
+const isNetworkishError = (error) => /fetch|network|load failed|resolve|name_not_resolved|tempo esgotado|timeout/i.test(String(error?.message || error || ''));
+
+async function internetWorks() {
+  try { const r = await fetch(`./manifest.json?x=${Date.now()}`, { cache: 'no-store' }); return r.ok; } catch (_) { return false; }
+}
+
+async function dbReachable() {
+  if (!SUPABASE_URL) return false;
+  try { const r = await fetch(`${SUPABASE_URL}/auth/v1/settings`, { headers: { apikey: SUPABASE_KEY }, cache: 'no-store' }); return r.ok; } catch (_) { return false; }
+}
+
+function watchDbComeback() {
+  clearTimeout(dbRetryTimer);
+  let ms = 60000;
+  try { ms = Number(sessionStorage.getItem('gplan2:db_retry_ms')) || 60000; } catch (_) { /* ok */ }
+  dbRetryTimer = setTimeout(async () => {
+    if (await dbReachable()) { window.location.reload(); return; }
+    watchDbComeback();
+  }, ms);
+}
+
+const PAUSED_HINT = 'O Supabase grátis pausa o projeto depois de 7 dias sem uso. Abra supabase.com, projeto controle-casa, e toque em Restore project. Suas alterações ficam guardadas neste aparelho e serão enviadas quando o banco voltar.';
+
+async function explainCloudFailure(error) {
+  if (!isNetworkishError(error) || !navigator.onLine) return false;
+  if (!(await internetWorks())) return false;
+  setSyncStatus('O banco está fora do ar (provavelmente pausado).', 'off', PAUSED_HINT);
+  showToast('Abra supabase.com e toque em Restore project. Nada se perde: envio tudo quando o banco voltar.', 'error', 12000, { title: 'Banco pausado', tag: 'banco-pausado' });
+  watchDbComeback();
+  return true;
 }
 
 function describeCloudError(error) {

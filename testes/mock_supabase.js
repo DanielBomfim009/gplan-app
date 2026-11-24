@@ -42,6 +42,8 @@
     try { sem = (JSON.parse(sessionStorage.getItem('mock-sem-colunas') || '{}'))[table] || []; } catch (_) { sem = []; }
     return sem.length ? base.filter(c => !sem.includes(c)) : base;
   }
+  // Banco "pausado" (sessionStorage 'mock-pausado' = '1'): tudo falha como se o endereço não existisse.
+  const mockPausado = () => { try { return sessionStorage.getItem('mock-pausado') === '1'; } catch (_) { return false; } };
   const DB_KEY = 'mock-db';
   const SESSION_KEY = 'mock-session';
   const LATENCY_MS = 15;
@@ -187,7 +189,7 @@
     then(resolve, reject) { return this.exec().then(resolve, reject); }
     async exec() {
       await delay(LATENCY_MS);
-      if (!navigator.onLine || window.__mockOffline) return { data: null, error: { message: 'TypeError: Failed to fetch' } };
+      if (!navigator.onLine || window.__mockOffline || mockPausado()) return { data: null, error: { message: 'TypeError: Failed to fetch' } };
       if (window.__mockFailNext) { window.__mockFailNext = false; return { data: null, error: { message: 'erro simulado', code: '23514', status: 400 } }; }
       const db = loadDb();
       const user = currentUser();
@@ -286,7 +288,7 @@
       removeChannel(ch) { if (ch) { ch.subscribed = false; channels.delete(ch); } return Promise.resolve('ok'); },
       async rpc(name, params) {
         await delay(LATENCY_MS);
-        if (!navigator.onLine || window.__mockOffline) return { data: null, error: { message: 'TypeError: Failed to fetch' } };
+        if (!navigator.onLine || window.__mockOffline || mockPausado()) return { data: null, error: { message: 'TypeError: Failed to fetch' } };
         const db = loadDb();
         const user = currentUser();
         if (!user) return { data: null, error: { message: 'JWT expired', status: 401 } };
@@ -316,7 +318,7 @@
         async getSession() { await delay(5); return { data: { session: getSession() }, error: null }; },
         async signInWithPassword({ email, password }) {
           await delay(LATENCY_MS);
-          if (!navigator.onLine || window.__mockOffline) return { data: {}, error: { message: 'TypeError: Failed to fetch' } };
+          if (!navigator.onLine || window.__mockOffline || mockPausado()) return { data: {}, error: { message: 'TypeError: Failed to fetch' } };
           const u = loadUsers().find(x => x.email === String(email).toLowerCase() && x.password === password);
           if (!u) return { data: { user: null, session: null }, error: { message: 'Invalid login credentials' } };
           const session = { user: { id: u.id, email: u.email }, access_token: 'mock' };
@@ -326,7 +328,7 @@
         },
         async signUp({ email, password, options }) {
           await delay(LATENCY_MS);
-          if (!navigator.onLine || window.__mockOffline) return { data: {}, error: { message: 'TypeError: Failed to fetch' } };
+          if (!navigator.onLine || window.__mockOffline || mockPausado()) return { data: {}, error: { message: 'TypeError: Failed to fetch' } };
           const mail = String(email || '').toLowerCase();
           if (loadUsers().some(x => x.email === mail)) return { data: { user: null, session: null }, error: { message: 'User already registered', status: 422 } };
           if (String(password || '').length < 6) return { data: {}, error: { message: 'Password should be at least 6 characters', status: 422 } };

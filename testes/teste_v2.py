@@ -654,6 +654,24 @@ def main():
         page.wait_for_timeout(150)
         checar(page.evaluate("document.getElementById('bottom-nav').style.transform") == "" and page.evaluate("window.scrollY <= Math.max(0, document.documentElement.scrollHeight - window.innerHeight)"), "arrumação dos elementos fixos roda e deixa a rolagem numa posição válida")
 
+        print("\n== 21. Banco pausado no Supabase: aviso claro e volta sozinho")
+        banco = {"pausado": True}
+        page.route("**/auth/v1/settings**", lambda r: r.abort() if banco["pausado"] else r.fulfill(status=200, content_type="application/json", body="{}"))
+        page.evaluate("sessionStorage.setItem('mock-pausado', '1'); sessionStorage.setItem('gplan2:db_retry_ms', '700')")
+        page.reload()
+        page.wait_for_function("document.getElementById('settings-sync-text')?.textContent.includes('pausado')", timeout=15000)
+        checar("Restore project" in txt(page, "#settings-sync-detail"), "status explica que o banco está pausado e o que fazer")
+        checar(page.evaluate("State.transactions.length") > 0, "a cópia do aparelho continua visível")
+        lancar(page, "1200", "Gás")
+        checar(page.evaluate("queue.length") >= 1, "alteração feita com o banco pausado fica na fila")
+        banco["pausado"] = False
+        page.evaluate("sessionStorage.setItem('mock-pausado', '0')")
+        page.wait_for_function("document.getElementById('live-indicator').classList.contains('ok') && State.transactions.some(t => t.description === 'Gás')", timeout=20000)
+        esperar_fila_vazia(page)
+        checar(any(r["description"] == "Gás" for r in db(page)["lancamentos"]), "quando o banco volta, o app recarrega sozinho e envia o que estava na fila")
+        page.evaluate("sessionStorage.removeItem('gplan2:db_retry_ms')")
+        page.unroute("**/auth/v1/settings**")
+
         print("\n== 16. Sair da conta limpa a tela")
         page.evaluate("openPage('settings')")
         page.click("[data-settings-tab='casa']")
