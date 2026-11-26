@@ -13,7 +13,7 @@
 const CONFIG = window.GPLAN_CONFIG || {};
 const SUPABASE_URL = String(CONFIG.supabaseUrl || '').trim();
 const SUPABASE_KEY = String(CONFIG.supabaseKey || '').trim();
-const APP_VERSION = '5.3.5';
+const APP_VERSION = '5.3.6';
 const PAGE_SIZE = 1000;
 const RECORRENCIA_MESES = 12;
 const LS_NOTIF = 'gplan2:avisos';
@@ -2388,22 +2388,35 @@ let fluxoOpenDate = null;
 // estejam marcados para depois (decisão do dono, 13/11/2026).
 const fluxoDate = (t) => (t.date || '');
 
-function buildDailyFlow(transactions, opening = 0) {
+// Cada lançamento conta no mês em que é pago/recebido (igual ao Painel, Transações e
+// Resumo) e fica no dia do VENCIMENTO. Vencidos em meses anteriores: linha "Antes".
+// Pago antes de vencer (vencimento no mês seguinte): fica no dia do pagamento.
+function buildDailyFlow(counted, opening = 0, preview = [], monthKey = '') {
   const byDate = new Map();
-  transactions.forEach(t => {
-    const key = fluxoDate(t);
+  const slot = (key) => { if (!byDate.has(key)) byDate.set(key, { items: [], preview: [] }); return byDate.get(key); };
+  counted.forEach(t => {
+    let key = isDateInput(fluxoDate(t)) ? fluxoDate(t) : effectiveDate(t);
     if (!isDateInput(key)) return;
-    if (!byDate.has(key)) byDate.set(key, []);
-    byDate.get(key).push(t);
+    if (monthKey && key.slice(0, 7) < monthKey) key = `${monthKey}-00`;
+    else if (monthKey && key.slice(0, 7) > monthKey) key = effectiveDate(t);
+    slot(key).items.push(t);
   });
+  preview.forEach(t => { if (isDateInput(t.date)) slot(t.date).preview.push(t); });
   let running = round2(opening);
+  const sum = (list, type) => round2(list.filter(t => t.type === type).reduce((s, t) => s + t.amount, 0));
   return [...byDate.keys()].sort().map(key => {
-    const items = sortTransactionsByDateAsc(byDate.get(key));
-    const income = round2(items.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0));
-    const expense = round2(items.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0));
+    const { items: raw, preview: rawPreview } = byDate.get(key);
+    const items = sortTransactionsByDateAsc(raw);
+    const later = sortTransactionsByDateAsc(rawPreview);
+    const income = sum(items, 'income');
+    const expense = sum(items, 'expense');
     const before = running;
     running = round2(before + income - expense);
-    return { key, items, income, expense, before, after: running, pending: items.filter(t => t.status === 'pending').length };
+    return {
+      key, items, later, income, expense, before, after: running,
+      laterIncome: sum(later, 'income'), laterExpense: sum(later, 'expense'),
+      pending: items.filter(t => t.status === 'pending').length
+    };
   });
 }
 
@@ -2422,37 +2435,48 @@ function renderFluxo() {
   const box = document.getElementById('report-fluxo');
   if (!box) return;
   const monthKey = getMonthKeyFromDate(State.reportCustomDate);
+  const monthOf = (t) => (isDateInput(effectiveDate(t)) ? effectiveDate(t).slice(0, 7) : '');
+  const counted = State.transactions.filter(t => monthOf(t) === monthKey);
+  const preview = State.transactions.filter(t => isDateInput(t.date) && t.date.slice(0, 7) === monthKey && monthOf(t) > monthKey);
   const opening = fluxoCarry
-    ? round2(State.transactions.filter(t => isDateInput(fluxoDate(t)) && fluxoDate(t).slice(0, 7) < monthKey).reduce((s, t) => s + (t.type === 'income' ? t.amount : -t.amount), 0))
+    ? round2(State.transactions.filter(t => monthOf(t) && monthOf(t) < monthKey).reduce((s, t) => s + (t.type === 'income' ? t.amount : -t.amount), 0))
     : 0;
-  const monthRows = State.transactions.filter(t => isDateInput(fluxoDate(t)) && fluxoDate(t).slice(0, 7) === monthKey);
-  const rows = buildDailyFlow(monthRows, opening);
+  const rows = buildDailyFlow(counted, opening, preview, monthKey);
   const carryBtn = document.getElementById('fluxo-carry-btn');
   if (carryBtn) carryBtn.textContent = fluxoCarry ? 'Começar o mês do zero' : 'Trazer saldo dos meses anteriores';
   if (!rows.length) { box.innerHTML = '<p class="text-center text-sm text-[#6b8a99]">Sem lançamentos neste mês.</p>'; return; }
   const weekday = (key) => (parseLocalDate(key)?.toLocaleDateString('pt-BR', { weekday: 'short' }) || '').replace('.', '');
+  const shortMonth = (t) => (parseLocalDate(effectiveDate(t))?.toLocaleDateString('pt-BR', { month: 'short' }) || '').replace('.', '');
   const money = (v) => `${v < 0 ? '- ' : ''}${formatMoney(Math.abs(v))}`;
   const openingHtml = fluxoCarry
     ? `<div class="fluxo-opening"><span>Vem dos meses anteriores</span><strong class="${opening >= 0 ? 'text-brand' : 'text-expense'}">${money(opening)}</strong></div>`
     : '';
+  const itemHtml = (t, later) => `<div class="fluxo-item${later ? ' later' : ''}"><span class="fluxo-item-desc">${escapeHtml(t.description)}${t.status === 'pending' && !later ? ' <em>pendente</em>' : ''}${later ? ` <em>conta em ${escapeHtml(shortMonth(t))} (${t.type === 'income' ? 'recebe' : 'paga'} ${formatDayMonth(t.payDate)})</em>` : (hasSeparatePayDate(t) ? ` <em>vence ${formatDayMonth(t.date)} · ${t.type === 'income' ? 'recebe' : 'paga'} ${formatDayMonth(t.payDate)}</em>` : '')}</span><span class="${t.type === 'income' ? 'text-income' : 'text-expense'}">${t.type === 'income' ? '+' : '-'}${formatMoney(t.amount)}</span></div>`;
   const last = rows[rows.length - 1];
   box.innerHTML = openingHtml + rows.map(r => {
     const open = fluxoOpenDate === r.key;
+    const isBefore = r.key.endsWith('-00');
+    const laterMonth = r.later.length ? shortMonth(r.later[0]) : '';
     const carryIn = r.before > 0 ? `<span class="fluxo-carry text-brand">+ sobra anterior ${formatMoney(r.before)}</span>` : '';
     const carryOut = r.before < 0 ? `<span class="fluxo-carry text-expense">+ acumulado ${formatMoney(-r.before)}</span>` : '';
+    const laterIn = r.laterIncome ? `<span class="fluxo-carry fluxo-later">${formatMoney(r.laterIncome)} conta em ${escapeHtml(laterMonth)}</span>` : '';
+    const laterOut = r.laterExpense ? `<span class="fluxo-carry fluxo-later">${formatMoney(r.laterExpense)} conta em ${escapeHtml(laterMonth)}</span>` : '';
     const saldoNote = r.after < 0
       ? '<span class="fluxo-carry text-expense">falta: vai para a próxima data</span>'
       : (r.before < 0 ? '<span class="fluxo-carry text-brand">acumulado quitado</span>' : '');
     const items = open
-      ? `<div class="fluxo-items">${r.items.map(t => `<div class="fluxo-item"><span class="fluxo-item-desc">${escapeHtml(t.description)}${t.status === 'pending' ? ' <em>pendente</em>' : ''}${hasSeparatePayDate(t) ? ` <em>${t.type === 'income' ? 'recebe' : 'paga'} em ${formatDayMonth(t.payDate)}</em>` : ''}</span><span class="${t.type === 'income' ? 'text-income' : 'text-expense'}">${t.type === 'income' ? '+' : '-'}${formatMoney(t.amount)}</span></div>`).join('')}</div>`
+      ? `<div class="fluxo-items">${r.items.map(t => itemHtml(t, false)).join('')}${r.later.map(t => itemHtml(t, true)).join('')}</div>`
       : '';
+    const dateCell = isBefore
+      ? '<div class="fluxo-date"><strong class="fluxo-before">Antes</strong><span>vencidos</span></div>'
+      : `<div class="fluxo-date"><strong>${r.key.slice(8, 10)}</strong><span>${escapeHtml(weekday(r.key))}</span>${r.pending ? `<em>${r.pending} pend.</em>` : ''}</div>`;
     return `
       <div class="fluxo-row${open ? ' open' : ''}" data-fluxo-date="${r.key}">
         <button type="button" class="fluxo-head" onclick="toggleFluxoDate('${r.key}')" aria-expanded="${open}">
-          <div class="fluxo-date"><strong>${r.key.slice(8, 10)}</strong><span>${escapeHtml(weekday(r.key))}</span>${r.pending ? `<em>${r.pending} pend.</em>` : ''}</div>
+          ${dateCell}
           <div class="fluxo-cols">
-            <div class="fluxo-col"><span class="fluxo-lbl">Entradas</span><span class="fluxo-val text-income">${formatMoney(r.income)}</span>${carryIn}</div>
-            <div class="fluxo-col"><span class="fluxo-lbl">Saídas</span><span class="fluxo-val text-expense">${formatMoney(r.expense)}</span>${carryOut}</div>
+            <div class="fluxo-col"><span class="fluxo-lbl">Entradas</span><span class="fluxo-val text-income">${formatMoney(r.income)}</span>${carryIn}${laterIn}</div>
+            <div class="fluxo-col"><span class="fluxo-lbl">Saídas</span><span class="fluxo-val text-expense">${formatMoney(r.expense)}</span>${carryOut}${laterOut}</div>
             <div class="fluxo-col"><span class="fluxo-lbl">Saldo</span><span class="fluxo-val ${r.after >= 0 ? 'text-brand' : 'text-expense'}">${money(r.after)}</span>${saldoNote}</div>
           </div>
         </button>

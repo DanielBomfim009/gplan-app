@@ -542,6 +542,9 @@
     .fluxo-items { border-top: 1px solid rgba(255, 255, 255, 0.06); padding: 6px 12px 8px; }
     .fluxo-item { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; padding: 5px 0; }
     .fluxo-item-desc { color: #e8f4f8; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fluxo-item.later { opacity: .55; }
+    .fluxo-later { color: #86a8b7; }
+    .fluxo-date strong.fluxo-before { font-size: 13px; }
     .fluxo-item em { font-style: normal; font-size: 10px; color: #ff8a50; margin-left: 4px; }
 
     /* Report Bars */
